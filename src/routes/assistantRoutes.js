@@ -147,6 +147,16 @@ function parseTruthy(value) {
   return ['1', 'true', 'yes', 'on'].includes(String(value || '').toLowerCase());
 }
 
+function readJsonFileSafe(filePath, fallbackValue = null) {
+  if (!fs.existsSync(filePath)) return fallbackValue;
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '');
+    return JSON.parse(raw || '{}');
+  } catch {
+    return fallbackValue;
+  }
+}
+
 export default function createAssistantRouter({
   CompanionLLMService,
   AlpacaService,
@@ -509,6 +519,55 @@ export default function createAssistantRouter({
           minCurated,
           result: parsed,
           stdoutTail: stdout.slice(-2000),
+        },
+      });
+    } catch (error) {
+      return sendErrorResponse(res, 500, error.message, req.requestId);
+    }
+  });
+
+  router.get('/training/status', (req, res) => {
+    try {
+      const minCurated = Math.max(1, Number(req?.query?.minCurated || runtime.trainMinCurated || 20));
+      const summaryFile = path.resolve(runtime.trainingDir, 'assistant-sft-summary.json');
+      const evalReportFile = path.resolve(runtime.evalReportsDir, 'latest.json');
+      const loraReportFile = path.resolve(runtime.trainingReportsDir, 'lora-latest.json');
+      const loraRegistryFile = String(runtime?.lora?.registryFile || '').trim()
+        || path.resolve(runtime.trainingReportsDir, 'lora-adapters.json');
+
+      const summary = readJsonFileSafe(summaryFile, null);
+      const evalLatest = readJsonFileSafe(evalReportFile, null);
+      const loraLatest = readJsonFileSafe(loraReportFile, null);
+      const loraRegistry = readJsonFileSafe(loraRegistryFile, null);
+
+      const curatedCount = Number(summary?.samples?.curated || 0);
+      const canAutoTrain = curatedCount >= minCurated;
+
+      return res.json({
+        ok: true,
+        requestId: req.requestId,
+        training: {
+          minCurated,
+          curatedCount,
+          canAutoTrain,
+          files: {
+            summaryFile,
+            evalReportFile,
+            loraReportFile,
+            loraRegistryFile,
+          },
+          eval: {
+            latest: evalLatest,
+            overallPassed: Boolean(evalLatest?.overallPassed),
+            generatedAt: evalLatest?.generatedAt || null,
+          },
+          lora: {
+            enabled: Boolean(runtime?.lora?.enabled),
+            latest: loraLatest,
+            activeAdapter: String(loraRegistry?.activeAdapter || ''),
+            registry: loraRegistry,
+          },
+          dataset: summary,
         },
       });
     } catch (error) {
