@@ -1,0 +1,29 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "pwa-node",
+      "request": "launch",
+      "name": "Luna Dev UI (F5 + Chrome)",
+      "program": "${workspaceFolder}/src/devServer.js",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PORT": "5050"
+      },
+      "console": "integratedTerminal",
+      "serverReadyAction": {
+        "action": "debugWithChrome",
+        "pattern": "Assistant Dev UI läuft auf (https?://\\S+)",
+        "uriFormat": "%s",
+        "webRoot": "${workspaceFolder}/web"
+      }
+    },
+    {
+      "type": "pwa-chrome",
+      "request": "launch",
+      "name": "Open Luna UI (Chrome)",
+      "url": "http://127.0.0.1:5050",
+      "webRoot": "${workspaceFolder}/web"
+    }
+  ]
+}

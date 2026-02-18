@@ -1,32 +1,61 @@
 # @luna/assistant-core
 
-Reusable assistant core module (Luna/Eva) for integration into multiple projects.
+Minimaler Assistant-Core als Library für Chat, Memory, Training und LoRA-Orchestrierung.
 
-## Contains
-- Assistant service orchestration (`CompanionLLMService`)
-- Assistant API router factory (`createAssistantRouter`)
-- Memory, prompt, eval, and training helpers used by the assistant runtime
+## Schnellstart
 
-## Learning / Training scripts (source of truth)
-- `npm run eval:gate`
-- `npm run train:export`
-- `npm run train:prepare`
-- `npm run train:auto -- --minCurated=20`
+Installieren:
 
-## Integration (local workspace)
-
-Use from Node apps by importing:
-
-```js
-import CompanionLLMService from '../assistant-core/src/services/CompanionLLMService.js';
-import createAssistantRouter from '../assistant-core/src/routes/assistantRoutes.js';
+```bash
+npm install @luna/assistant-core
+npm install express better-sqlite3 ollama
 ```
 
-## Versioning
-- Increase `version` in `package.json` when behavior changes.
-- Publish to a git repo or npm registry to consume from other projects.
+Wenn noch nicht auf npm veröffentlicht:
 
-## Migration strategy
-1. Keep host project wrappers stable.
-2. Move feature work into `assistant-core` first.
-3. Update wrappers/imports in host projects.
+```bash
+npm install github:yskills/aissistant#main
+```
+
+Einbinden:
+
+```js
+import { createCompanionLLMService, createAssistantRouter } from '@luna/assistant-core/v1';
+
+const service = createCompanionLLMService();
+const router = createAssistantRouter({ CompanionLLMService: service });
+app.use('/assistant', router);
+```
+
+## Training
+
+Standard-Flow:
+
+```bash
+npm run train:auto -- --minCurated=20
+```
+
+Das enthält automatisch:
+- Qualitätskontrolle (`eval:gate`)
+- Datenexport (`train:export`)
+- Prepare (`train:prepare`)
+- LoRA-Start, wenn `ASSISTANT_LORA_ENABLED=true`
+
+Häufige Optionen:
+- `--skipEval`
+- `--skipLora`
+- `--loraDryRun`
+
+## Adapter-Strategie
+
+Empfohlen:
+- `ASSISTANT_LORA_ADAPTER_STRATEGY=versioned`
+- `ASSISTANT_LORA_AUTO_PROMOTE=true`
+
+Aktiver Adapter steht in:
+- `reports/training/lora-adapters.json` (`activeAdapter`)
+
+## Mehr Details
+
+- Integration im Consumer: `INTEGRATION.md`
+- Trainingsablauf: `TRAINREADME.md`

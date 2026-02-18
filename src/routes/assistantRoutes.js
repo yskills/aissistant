@@ -1,6 +1,10 @@
 import express from 'express';
 import crypto from 'crypto';
 import { spawnSync } from 'child_process';
+import fs from 'fs';
+import path from 'path';
+import { resolveRuntimeConfig } from '../config/runtimeConfig.js';
+import { LoraTrainingGateway } from '../training/LoraTrainingGateway.js';
 
 const UNCENSORED_MODE_PASSWORD = String(
   process.env.ASSISTANT_UNCENSORED_PASSWORD || '',
@@ -139,6 +143,10 @@ function parseLastJsonFromOutput(text = '') {
   return null;
 }
 
+function parseTruthy(value) {
+  return ['1', 'true', 'yes', 'on'].includes(String(value || '').toLowerCase());
+}
+
 export default function createAssistantRouter({
   CompanionLLMService,
   AlpacaService,
@@ -147,6 +155,8 @@ export default function createAssistantRouter({
   sendErrorResponse,
 }) {
   const router = express.Router();
+  const runtime = resolveRuntimeConfig();
+  const loraGateway = new LoraTrainingGateway({ runtime });
 
   router.get('/brief', async (req, res) => {
     try {
@@ -434,8 +444,8 @@ export default function createAssistantRouter({
 
   router.post('/training/prepare', (req, res) => {
     try {
-      const result = spawnSync('npm', ['run', 'train:prepare'], {
-        cwd: process.cwd(),
+      const result = spawnSync(runtime.npmCommand, ['run', 'train:prepare'], {
+        cwd: runtime.scriptsWorkingDir,
         encoding: 'utf8',
         timeout: 10 * 60 * 1000,
         shell: process.platform === 'win32',
@@ -470,8 +480,8 @@ export default function createAssistantRouter({
   router.post('/training/auto', (req, res) => {
     try {
       const minCurated = Math.max(1, Number(req?.body?.minCurated || process.env.TRAIN_MIN_CURATED || 20));
-      const result = spawnSync('npm', ['run', 'train:auto', '--', `--minCurated=${minCurated}`], {
-        cwd: process.cwd(),
+      const result = spawnSync(runtime.npmCommand, ['run', 'train:auto', '--', `--minCurated=${minCurated}`], {
+        cwd: runtime.scriptsWorkingDir,
         encoding: 'utf8',
         timeout: 12 * 60 * 1000,
         shell: process.platform === 'win32',
@@ -499,6 +509,115 @@ export default function createAssistantRouter({
           minCurated,
           result: parsed,
           stdoutTail: stdout.slice(-2000),
+        },
+      });
+    } catch (error) {
+      return sendErrorResponse(res, 500, error.message, req.requestId);
+    }
+  });
+
+  router.get('/training/lora/config', (req, res) => {
+    try {
+      return res.json({
+        ok: true,
+        requestId: req.requestId,
+        lora: loraGateway.getPublicConfig(),
+      });
+    } catch (error) {
+      return sendErrorResponse(res, 500, error.message, req.requestId);
+    }
+  });
+
+  router.get('/training/lora/status', async (req, res) => {
+    try {
+      const jobId = String(req?.query?.jobId || '').trim();
+      const reportFile = path.resolve(runtime.trainingReportsDir, 'lora-latest.json');
+      const latest = fs.existsSync(reportFile)
+        ? JSON.parse(fs.readFileSync(reportFile, 'utf8') || '{}')
+        : null;
+
+      if (!jobId) {
+        return res.json({
+          ok: true,
+          requestId: req.requestId,
+          lora: {
+            latest,
+          },
+        });
+      }
+
+      const status = await loraGateway.getJobStatus(jobId);
+      return res.json({
+        ok: true,
+        requestId: req.requestId,
+        lora: {
+          latest,
+          status,
+        },
+      });
+    } catch (error) {
+      return sendErrorResponse(res, 500, error.message, req.requestId);
+    }
+  });
+
+  router.post('/training/lora/start', (req, res) => {
+    try {
+      const body = req.body || {};
+      const datasetTier = String(body.datasetTier || runtime?.lora?.defaultDatasetTier || 'curated').trim().toLowerCase();
+      const minCurated = Math.max(1, Number(body.minCurated || runtime.trainMinCurated || 20));
+      const baseModel = String(body.baseModel || runtime?.lora?.defaultBaseModel || '').trim();
+      const adapterName = String(body.adapterName || runtime?.lora?.defaultAdapterName || 'luna-adapter').trim();
+      const dryRun = parseTruthy(body.dryRun);
+      const skipEval = parseTruthy(body.skipEval);
+      const skipExport = parseTruthy(body.skipExport);
+      const learningRate = Number(body.learningRate);
+      const epochs = Number(body.epochs);
+      const batchSize = Number(body.batchSize);
+      const rank = Number(body.rank);
+      const alpha = Number(body.alpha);
+      const dropout = Number(body.dropout);
+
+      const args = ['run', 'train:lora', '--', `--datasetTier=${datasetTier}`, `--minCurated=${minCurated}`];
+      if (baseModel) args.push(`--baseModel=${baseModel}`);
+      if (adapterName) args.push(`--adapterName=${adapterName}`);
+      if (dryRun) args.push('--dryRun');
+      if (skipEval) args.push('--skipEval');
+      if (skipExport) args.push('--skipExport');
+      if (Number.isFinite(learningRate)) args.push(`--learningRate=${learningRate}`);
+      if (Number.isFinite(epochs)) args.push(`--epochs=${epochs}`);
+      if (Number.isFinite(batchSize)) args.push(`--batchSize=${batchSize}`);
+      if (Number.isFinite(rank)) args.push(`--rank=${rank}`);
+      if (Number.isFinite(alpha)) args.push(`--alpha=${alpha}`);
+      if (Number.isFinite(dropout)) args.push(`--dropout=${dropout}`);
+
+      const result = spawnSync(runtime.npmCommand, args, {
+        cwd: runtime.scriptsWorkingDir,
+        encoding: 'utf8',
+        timeout: 20 * 60 * 1000,
+        shell: process.platform === 'win32',
+      });
+
+      const stdout = String(result?.stdout || '').trim();
+      const stderr = String(result?.stderr || '').trim();
+      const exitCode = Number(result?.status ?? 1);
+      const parsed = parseLastJsonFromOutput(stdout);
+
+      if (exitCode !== 0) {
+        return sendErrorResponse(
+          res,
+          500,
+          `train:lora failed (exit ${exitCode})${stderr ? `: ${stderr.slice(-400)}` : ''}`,
+          req.requestId,
+        );
+      }
+
+      return res.json({
+        ok: true,
+        requestId: req.requestId,
+        training: {
+          exitCode,
+          result: parsed,
+          stdoutTail: stdout.slice(-2500),
         },
       });
     } catch (error) {

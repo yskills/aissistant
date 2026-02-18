@@ -1,54 +1,55 @@
-import path from 'path';
 import MemoryManager from './assistant/MemoryManager.js';
 import PromptBuilder from './assistant/PromptBuilder.js';
 import LLMClient from './assistant/LLMClient.js';
 import StateStoreFactory from './assistant/storage/StateStoreFactory.js';
 import MemorySchemaManager from './assistant/MemorySchemaManager.js';
 import ModeConfigRepository from './assistant/ModeConfigRepository.js';
+import { resolveRuntimeConfig } from '../config/runtimeConfig.js';
 
-const MEMORY_DIR = path.resolve(process.cwd(), 'data');
-const MEMORY_SQLITE_FILE = path.join(MEMORY_DIR, 'assistant-memory.sqlite');
-const ASSISTANT_MEMORY_KEY = 'assistant-memory';
-const MODE_CONFIG_FILE = path.resolve(process.cwd(), 'config', 'assistant-mode-config.local.json');
+export class CompanionLLMService {
+  constructor({ env = process.env, cwd = process.cwd(), runtime = {} } = {}) {
+    this.env = env;
+    this.runtime = {
+      ...resolveRuntimeConfig({ env, cwd }),
+      ...(runtime || {}),
+    };
 
-class CompanionLLMService {
-  constructor() {
-    this.provider = (process.env.LLM_PROVIDER || 'ollama').toLowerCase();
-    this.model = process.env.LLM_MODEL || process.env.OPENAI_MODEL || 'llama3.1:8b';
-    this.ollamaHost = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
-    this.openaiBaseUrl = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
-    this.openaiApiKey = process.env.OPENAI_API_KEY || '';
-    this.webSearchEnabled = ['1', 'true', 'yes', 'on'].includes(String(process.env.ASSISTANT_WEB_SEARCH_ENABLED || '').toLowerCase());
-    this.webSearchCharacterIds = String(process.env.ASSISTANT_WEB_SEARCH_CHARACTERS || 'luna')
+    this.provider = (env.LLM_PROVIDER || 'ollama').toLowerCase();
+    this.model = env.LLM_MODEL || env.OPENAI_MODEL || 'llama3.1:8b';
+    this.ollamaHost = env.OLLAMA_HOST || 'http://127.0.0.1:11434';
+    this.openaiBaseUrl = env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
+    this.openaiApiKey = env.OPENAI_API_KEY || '';
+    this.webSearchEnabled = ['1', 'true', 'yes', 'on'].includes(String(env.ASSISTANT_WEB_SEARCH_ENABLED || '').toLowerCase());
+    this.webSearchCharacterIds = String(env.ASSISTANT_WEB_SEARCH_CHARACTERS || 'luna')
       .split(',')
       .map((v) => v.trim().toLowerCase())
       .filter(Boolean);
-    this.webSearchMaxItems = Number(process.env.ASSISTANT_WEB_SEARCH_MAX_ITEMS || 3);
+    this.webSearchMaxItems = Number(env.ASSISTANT_WEB_SEARCH_MAX_ITEMS || 3);
 
-    this.historyWindow = Number(process.env.LLM_HISTORY_WINDOW || 10);
-    this.historyStoreLimit = Number(process.env.LLM_HISTORY_STORE_LIMIT || 40);
-    this.notesLimit = Number(process.env.LLM_NOTES_LIMIT || 10);
+    this.historyWindow = Number(env.LLM_HISTORY_WINDOW || 10);
+    this.historyStoreLimit = Number(env.LLM_HISTORY_STORE_LIMIT || 40);
+    this.notesLimit = Number(env.LLM_NOTES_LIMIT || 10);
 
-    this.historyRetentionDays = Number(process.env.LLM_HISTORY_RETENTION_DAYS || 45);
-    this.summaryChunkSize = Number(process.env.LLM_SUMMARY_CHUNK_SIZE || 20);
-    this.summaryLimit = Number(process.env.LLM_SUMMARY_LIMIT || 24);
-    this.summaryContextWindow = Number(process.env.LLM_SUMMARY_CONTEXT_WINDOW || 4);
-    this.maxMessageChars = Number(process.env.LLM_MAX_MESSAGE_CHARS || 1200);
-    this.memoryQualityThreshold = Number(process.env.LLM_MEMORY_QUALITY_THRESHOLD || 0.55);
-    this.memoryMinLength = Number(process.env.LLM_MEMORY_MIN_LENGTH || 10);
-    this.memoryMaxLength = Number(process.env.LLM_MEMORY_MAX_LENGTH || 180);
-    this.memoryDecayDays = Number(process.env.LLM_MEMORY_DECAY_DAYS || 30);
-    this.memoryForgetThreshold = Number(process.env.LLM_MEMORY_FORGET_THRESHOLD || 0.35);
+    this.historyRetentionDays = Number(env.LLM_HISTORY_RETENTION_DAYS || 45);
+    this.summaryChunkSize = Number(env.LLM_SUMMARY_CHUNK_SIZE || 20);
+    this.summaryLimit = Number(env.LLM_SUMMARY_LIMIT || 24);
+    this.summaryContextWindow = Number(env.LLM_SUMMARY_CONTEXT_WINDOW || 4);
+    this.maxMessageChars = Number(env.LLM_MAX_MESSAGE_CHARS || 1200);
+    this.memoryQualityThreshold = Number(env.LLM_MEMORY_QUALITY_THRESHOLD || 0.55);
+    this.memoryMinLength = Number(env.LLM_MEMORY_MIN_LENGTH || 10);
+    this.memoryMaxLength = Number(env.LLM_MEMORY_MAX_LENGTH || 180);
+    this.memoryDecayDays = Number(env.LLM_MEMORY_DECAY_DAYS || 30);
+    this.memoryForgetThreshold = Number(env.LLM_MEMORY_FORGET_THRESHOLD || 0.35);
 
     this.allowedModes = ['normal', 'uncensored'];
     this.memoryBackend = 'sqlite';
-    if (String(process.env.MEMORY_BACKEND || 'sqlite').toLowerCase() !== 'sqlite') {
+    if (String(env.MEMORY_BACKEND || 'sqlite').toLowerCase() !== 'sqlite') {
       throw new Error('Only MEMORY_BACKEND=sqlite is supported. JSON fallback is disabled.');
     }
     this.memoryStore = this.createMemoryStore();
     this.memorySchemaManager = new MemorySchemaManager({ currentVersion: 2 });
     this.modeConfigRepository = new ModeConfigRepository({
-      configFilePath: MODE_CONFIG_FILE,
+      configFilePath: this.runtime.modeConfigFile,
       allowedModes: this.allowedModes,
     });
 
@@ -199,23 +200,23 @@ class CompanionLLMService {
   createMemoryStore() {
     return StateStoreFactory.create({
       backend: this.memoryBackend,
-      sqliteFilePath: MEMORY_SQLITE_FILE,
-      defaultKey: ASSISTANT_MEMORY_KEY,
+      sqliteFilePath: this.runtime.memorySqliteFile,
+      defaultKey: this.runtime.memoryKey,
     });
   }
 
   loadMemory() {
-    const raw = this.memoryStore.readState(ASSISTANT_MEMORY_KEY, { users: {} });
+    const raw = this.memoryStore.readState(this.runtime.memoryKey, { users: {} });
     const migrated = this.memorySchemaManager.migrate(raw);
     if (migrated.changed) {
-      this.memoryStore.writeState(ASSISTANT_MEMORY_KEY, migrated.memory);
+      this.memoryStore.writeState(this.runtime.memoryKey, migrated.memory);
     }
     return migrated.memory;
   }
 
   saveMemory(memory) {
     const versionedMemory = this.memorySchemaManager.ensureLatest(memory);
-    this.memoryStore.writeState(ASSISTANT_MEMORY_KEY, versionedMemory);
+    this.memoryStore.writeState(this.runtime.memoryKey, versionedMemory);
   }
 
   loadModeConfig() {
@@ -227,8 +228,14 @@ class CompanionLLMService {
   }
 
   resetAllState(userId = 'default') {
-    this.memoryStore.deleteState(ASSISTANT_MEMORY_KEY);
+    this.memoryStore.deleteState(this.runtime.memoryKey);
     return this.memoryManager.resetUserState(userId);
+  }
+
+  getRuntimeConfig() {
+    return {
+      ...this.runtime,
+    };
   }
 
   getSettings(userId = 'default') {

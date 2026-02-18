@@ -1,11 +1,17 @@
 import fs from 'fs';
 import path from 'path';
-import CompanionLLMService from '../../src/services/CompanionLLMService.js';
+import {
+  assertFileExists,
+  ensureDirectory,
+  resolveRuntimeConfig,
+} from '../../src/config/runtimeConfig.js';
 
-const OUTPUT_DIR = path.resolve(process.cwd(), 'data', 'training');
+const runtime = resolveRuntimeConfig();
+const OUTPUT_DIR = runtime.trainingDir;
 const OUTPUT_FILE_MERGED = path.join(OUTPUT_DIR, 'assistant-sft.jsonl');
 const OUTPUT_FILE_CURATED = path.join(OUTPUT_DIR, 'assistant-sft-curated.jsonl');
 const OUTPUT_FILE_MEMORY = path.join(OUTPUT_DIR, 'assistant-sft-memory.jsonl');
+const OUTPUT_FILE_SUMMARY = path.join(OUTPUT_DIR, 'assistant-sft-summary.json');
 
 function normalizeText(value = '') {
   return String(value || '').replace(/\s+/g, ' ').trim();
@@ -29,6 +35,7 @@ function toJsonlLine(pair) {
     meta: {
       userId: pair.userId,
       mode: pair.mode,
+      datasetTier: pair.datasetTier || 'memory',
       source: pair.source,
       at: pair.at,
     },
@@ -58,6 +65,7 @@ function collectPairs(memory = { users: {} }) {
       if (!isUsablePair(turn?.user, turn?.assistant)) return;
       memoryPairs.push({
         userId,
+        datasetTier: 'memory',
         mode: 'normal',
         source: 'history',
         at: String(turn?.at || ''),
@@ -70,6 +78,7 @@ function collectPairs(memory = { users: {} }) {
       if (!isUsablePair(turn?.user, turn?.assistant)) return;
       memoryPairs.push({
         userId,
+        datasetTier: 'memory',
         mode: 'uncensored',
         source: 'uncensoredHistory',
         at: String(turn?.at || ''),
@@ -87,6 +96,7 @@ function collectPairs(memory = { users: {} }) {
       if (!isUsablePair(item?.user, item?.assistant)) return;
       curatedPairs.push({
         userId,
+        datasetTier: 'curated',
         mode: String(item?.mode || 'normal').toLowerCase() === 'uncensored' ? 'uncensored' : 'normal',
         source: String(item?.source || 'trainingExample'),
         at: String(item?.at || ''),
@@ -112,13 +122,14 @@ function writeJsonlFile(filePath, pairs = []) {
   fs.writeFileSync(filePath, `${jsonl}${jsonl ? '\n' : ''}`, 'utf8');
 }
 
-function main() {
+async function main() {
+  assertFileExists(runtime.modeConfigFile, 'assistant mode config file');
+  const module = await import('../../src/services/CompanionLLMService.js');
+  const CompanionLLMService = module.default;
   const memory = CompanionLLMService.loadMemory();
   const datasets = collectPairs(memory);
 
-  if (!fs.existsSync(OUTPUT_DIR)) {
-    fs.mkdirSync(OUTPUT_DIR, { recursive: true });
-  }
+  ensureDirectory(OUTPUT_DIR);
 
   writeJsonlFile(OUTPUT_FILE_CURATED, datasets.curated);
   writeJsonlFile(OUTPUT_FILE_MEMORY, datasets.memoryOnly);
@@ -130,6 +141,7 @@ function main() {
       curated: OUTPUT_FILE_CURATED,
       memoryOnly: OUTPUT_FILE_MEMORY,
       merged: OUTPUT_FILE_MERGED,
+      summary: OUTPUT_FILE_SUMMARY,
     },
     samples: {
       curated: datasets.curated.length,
@@ -139,7 +151,12 @@ function main() {
     users: Object.keys(memory?.users || {}).length,
   };
 
+  fs.writeFileSync(OUTPUT_FILE_SUMMARY, `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
+
   console.log(JSON.stringify(summary, null, 2));
 }
 
-main();
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

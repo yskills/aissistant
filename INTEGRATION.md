@@ -1,35 +1,51 @@
-# Integration und Updates für assistant-core
+# Integration (Produktion)
 
-## Ziel
-assistant-core soll in mehreren Projekten wiederverwendet werden und zentral versioniert werden.
+## Entscheidung
 
-## Empfohlener Weg (nach dem Auskoppeln in eigenes Git-Repo)
+Nutze dieses Repo als Library. Kein Fork nötig.
 
-1. assistant-core als eigenes Repo pushen.
-2. Version erhöhen (z. B. 0.1.0 -> 0.2.0) bei Änderungen.
-3. In Zielprojekten als Dependency einbinden:
-   - per Git-Tag/Commit
-   - oder per npm Registry (privat/öffentlich)
+## Installation im Consumer
 
-## Update-Workflow für Projekte
+Option 1 (sofort):
 
-1. Neue Version im assistant-core Repo taggen.
-2. In jedem Projekt Dependency-Version aktualisieren.
-3. Install ausführen.
-4. Kurztest: eval gate + smoke test.
+```bash
+npm install github:yskills/aissistant#main
+npm install express better-sqlite3 ollama
+```
 
-## Solange alles noch im selben Workspace ist
+Option 2 (nach npm publish):
 
-Aktuell nutzt backend Wrapper-Dateien, die auf assistant-core zeigen:
-- backend/src/services/CompanionLLMService.js
-- backend/src/routes/assistantRoutes.js
+```bash
+npm install @luna/assistant-core@<version>
+npm install express better-sqlite3 ollama
+```
 
-Damit bleibt alles kompatibel, während du assistant-core weiterentwickelst.
+## Einbau
 
-## Minimaler Qualitäts-Check vor Release
+```js
+import { createCompanionLLMService, createAssistantRouter } from '@luna/assistant-core/v1';
 
-1. npm --prefix backend run eval:gate
-2. npm --prefix backend run train:auto -- --minCurated=20
-3. Frontend Lint/Smoke
+const service = createCompanionLLMService();
+const router = createAssistantRouter({ CompanionLLMService: service });
+app.use('/assistant', router);
+```
 
-Wenn das grün ist, kannst du release/tag sicher machen.
+## Minimale ENV im Consumer
+
+```bash
+ASSISTANT_BASE_DIR=.
+ASSISTANT_MODE_CONFIG_FILE=./config/assistant-mode-config.local.json
+ASSISTANT_MEMORY_FILE=./data/assistant-memory.sqlite
+ASSISTANT_LORA_ENABLED=true
+ASSISTANT_LORA_API_BASE_URL=<dein-lora-endpoint>
+ASSISTANT_LORA_BASE_MODEL=llama3:8b
+ASSISTANT_LORA_ADAPTER_NAME=luna-adapter
+ASSISTANT_LORA_ADAPTER_STRATEGY=versioned
+ASSISTANT_LORA_AUTO_PROMOTE=true
+```
+
+## Update-Flow
+
+1. Neue Version dieses Repos veröffentlichen.
+2. Im Consumer `npm install @luna/assistant-core@<neue-version>`.
+3. Kurz prüfen mit `npm run smoke:core` im Core-Repo und einem API-Smoketest im Consumer.

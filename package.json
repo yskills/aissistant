@@ -3,16 +3,35 @@
   "version": "0.1.0",
   "type": "module",
   "main": "src/index.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "src",
+    "scripts",
+    "config",
+    "README.md",
+    "INTEGRATION.md",
+    "TRAINREADME.md"
+  ],
   "scripts": {
+    "start": "node src/devServer.js",
+    "dev": "node src/devServer.js",
     "eval:gate": "node scripts/eval/run-eval-gate.js",
     "train:export": "node scripts/training/export-assistant-dataset.js",
     "train:prepare": "node scripts/training/prepare-training-cycle.js",
-    "train:auto": "node scripts/training/run-auto-training-cycle.js"
+    "train:auto": "node scripts/training/run-auto-training-cycle.js",
+    "train:lora": "node scripts/training/run-lora-training-cycle.js",
+    "smoke:core": "node scripts/smoke/run-smoke-checks.js"
   },
   "exports": {
     ".": "./src/index.js",
+    "./v1": "./src/public/v1.js",
+    "./service": "./src/service/createAssistantServiceApp.js",
+    "./training/lora": "./src/training/LoraTrainingGateway.js",
     "./services/CompanionLLMService": "./src/services/CompanionLLMService.js",
-    "./routes/assistantRoutes": "./src/routes/assistantRoutes.js"
+    "./routes/assistantRoutes": "./src/routes/assistantRoutes.js",
+    "./internal/*": null
   },
   "peerDependencies": {
     "better-sqlite3": "^11.0.0",

@@ -1,7 +1,9 @@
 import { spawnSync } from 'child_process';
 import path from 'path';
+import { resolveRuntimeConfig } from '../../src/config/runtimeConfig.js';
 
-const projectRoot = process.cwd();
+const runtime = resolveRuntimeConfig();
+const projectRoot = runtime.scriptsWorkingDir;
 
 function runStep(stepName, command, args = []) {
   const result = spawnSync(command, args, {
@@ -18,12 +20,12 @@ function runStep(stepName, command, args = []) {
 function main() {
   const startedAt = new Date().toISOString();
 
-  runStep('Eval gate', 'npm', ['run', 'eval:gate']);
-  runStep('Export dataset', 'npm', ['run', 'train:export']);
+  runStep('Eval gate', runtime.npmCommand, ['run', 'eval:gate']);
+  runStep('Export dataset', runtime.npmCommand, ['run', 'train:export']);
 
   const finishedAt = new Date().toISOString();
-  const mergedPath = path.resolve(projectRoot, 'data', 'training', 'assistant-sft.jsonl');
-  const curatedPath = path.resolve(projectRoot, 'data', 'training', 'assistant-sft-curated.jsonl');
+  const mergedPath = path.resolve(runtime.trainingDir, 'assistant-sft.jsonl');
+  const curatedPath = path.resolve(runtime.trainingDir, 'assistant-sft-curated.jsonl');
 
   console.log(JSON.stringify({
     ok: true,

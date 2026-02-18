@@ -1,9 +1,14 @@
 import fs from 'fs';
 import path from 'path';
-import CompanionLLMService from '../../src/services/CompanionLLMService.js';
+import {
+  assertFileExists,
+  ensureDirectory,
+  resolveRuntimeConfig,
+} from '../../src/config/runtimeConfig.js';
 
-const DEFAULT_CONFIG_FILE = path.resolve(process.cwd(), 'config', 'eval', 'gate.config.json');
-const REPORT_DIR = path.resolve(process.cwd(), 'reports', 'eval');
+const runtime = resolveRuntimeConfig();
+const DEFAULT_CONFIG_FILE = runtime.evalConfigFile;
+const REPORT_DIR = runtime.evalReportsDir;
 const REPORT_FILE = path.join(REPORT_DIR, 'latest.json');
 
 function normalizeText(value = '') {
@@ -31,13 +36,11 @@ function parseArgs() {
 }
 
 function readConfig(configFile) {
-  if (!fs.existsSync(configFile)) {
-    throw new Error(`Missing eval config file: ${configFile}`);
-  }
+  assertFileExists(configFile, 'eval config file');
   return JSON.parse(fs.readFileSync(configFile, 'utf8'));
 }
 
-async function runCase(testCase) {
+async function runCase(testCase, CompanionLLMService) {
   const userId = `eval-${testCase.characterId || 'default'}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
   const snapshot = {
     account: { equity: '$10000', cash: '$3000', buyingPower: '$6000' },
@@ -89,13 +92,13 @@ async function runCase(testCase) {
   };
 }
 
-async function runSuite(suite) {
+async function runSuite(suite, CompanionLLMService) {
   const cases = Array.isArray(suite?.cases) ? suite.cases : [];
   const caseResults = [];
 
   for (const testCase of cases) {
     // eslint-disable-next-line no-await-in-loop
-    const result = await runCase(testCase);
+    const result = await runCase(testCase, CompanionLLMService);
     caseResults.push(result);
   }
 
@@ -117,13 +120,17 @@ async function runSuite(suite) {
 
 async function main() {
   const { configFile } = parseArgs();
+  assertFileExists(runtime.modeConfigFile, 'assistant mode config file');
+  const module = await import('../../src/services/CompanionLLMService.js');
+  const CompanionLLMService = module.default;
+
   const config = readConfig(configFile);
   const suites = Array.isArray(config?.suites) ? config.suites : [];
 
   const suiteResults = [];
   for (const suite of suites) {
     // eslint-disable-next-line no-await-in-loop
-    const suiteResult = await runSuite(suite);
+    const suiteResult = await runSuite(suite, CompanionLLMService);
     suiteResults.push(suiteResult);
   }
 
@@ -145,9 +152,7 @@ async function main() {
     suiteResults,
   };
 
-  if (!fs.existsSync(REPORT_DIR)) {
-    fs.mkdirSync(REPORT_DIR, { recursive: true });
-  }
+  ensureDirectory(REPORT_DIR);
 
   fs.writeFileSync(REPORT_FILE, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
   console.log(JSON.stringify(report, null, 2));

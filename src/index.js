@@ -1,2 +1,9 @@
-export { default as CompanionLLMService } from './services/CompanionLLMService.js';
-export { default as createAssistantRouter } from './routes/assistantRoutes.js';
+export {
+	API_VERSION,
+	CompanionLLMService,
+	CompanionLLMServiceClass,
+	createCompanionLLMService,
+	createAssistantRouter,
+	createAssistantServiceApp,
+	LoraTrainingGateway,
+} from './public/v1.js';
