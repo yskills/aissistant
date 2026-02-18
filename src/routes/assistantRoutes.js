@@ -157,6 +157,47 @@ function readJsonFileSafe(filePath, fallbackValue = null) {
   }
 }
 
+function ensureDirectory(dirPath = '') {
+  if (!dirPath) return;
+  if (!fs.existsSync(dirPath)) {
+    fs.mkdirSync(dirPath, { recursive: true });
+  }
+}
+
+function normalizeAdapterName(value = '', fallback = 'luna-adapter-example') {
+  const candidate = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  return candidate || fallback;
+}
+
+function resolveLoraFiles(runtime) {
+  const loraReportFile = path.resolve(runtime.trainingReportsDir, 'lora-latest.json');
+  const loraRegistryFile = String(runtime?.lora?.registryFile || '').trim()
+    || path.resolve(runtime.trainingReportsDir, 'lora-adapters.json');
+  const adapterOutputDir = path.resolve(runtime?.lora?.outputDir || path.resolve(runtime.rootDir, 'data', 'adapters'));
+  return {
+    loraReportFile,
+    loraRegistryFile,
+    adapterOutputDir,
+  };
+}
+
+function buildAdapterPaths({ adapterOutputDir = '', activeAdapter = '', loraLatest = null } = {}) {
+  const activeName = String(activeAdapter || '').trim();
+  const activeAdapterPath = activeName ? path.resolve(adapterOutputDir, activeName) : '';
+  const latestExpectedAdapterPath = String(loraLatest?.lora?.expectedAdapterPath || '').trim();
+  return {
+    adapterOutputDir,
+    activeAdapter: activeName,
+    activeAdapterPath,
+    latestExpectedAdapterPath,
+  };
+}
+
 export default function createAssistantRouter({
   CompanionLLMService,
   AlpacaService,
@@ -531,9 +572,7 @@ export default function createAssistantRouter({
       const minCurated = Math.max(1, Number(req?.query?.minCurated || runtime.trainMinCurated || 20));
       const summaryFile = path.resolve(runtime.trainingDir, 'assistant-sft-summary.json');
       const evalReportFile = path.resolve(runtime.evalReportsDir, 'latest.json');
-      const loraReportFile = path.resolve(runtime.trainingReportsDir, 'lora-latest.json');
-      const loraRegistryFile = String(runtime?.lora?.registryFile || '').trim()
-        || path.resolve(runtime.trainingReportsDir, 'lora-adapters.json');
+      const { loraReportFile, loraRegistryFile, adapterOutputDir } = resolveLoraFiles(runtime);
 
       const summary = readJsonFileSafe(summaryFile, null);
       const evalLatest = readJsonFileSafe(evalReportFile, null);
@@ -542,6 +581,11 @@ export default function createAssistantRouter({
 
       const curatedCount = Number(summary?.samples?.curated || 0);
       const canAutoTrain = curatedCount >= minCurated;
+      const adapterPaths = buildAdapterPaths({
+        adapterOutputDir,
+        activeAdapter: loraRegistry?.activeAdapter,
+        loraLatest,
+      });
 
       return res.json({
         ok: true,
@@ -565,6 +609,7 @@ export default function createAssistantRouter({
             enabled: Boolean(runtime?.lora?.enabled),
             latest: loraLatest,
             activeAdapter: String(loraRegistry?.activeAdapter || ''),
+            adapterPaths,
             registry: loraRegistry,
           },
           dataset: summary,
@@ -581,6 +626,86 @@ export default function createAssistantRouter({
         ok: true,
         requestId: req.requestId,
         lora: loraGateway.getPublicConfig(),
+      });
+    } catch (error) {
+      return sendErrorResponse(res, 500, error.message, req.requestId);
+    }
+  });
+
+  router.post('/training/lora/example-adapter', (req, res) => {
+    try {
+      const body = req.body || {};
+      const { loraRegistryFile, adapterOutputDir } = resolveLoraFiles(runtime);
+      const promote = body.promote == null ? true : parseTruthy(body.promote);
+      const prefix = normalizeAdapterName(
+        body.adapterPrefix || runtime?.lora?.defaultAdapterName || 'luna-adapter',
+        'luna-adapter',
+      );
+      const adapterName = normalizeAdapterName(
+        body.adapterName,
+        `${prefix}-example-${Date.now()}`,
+      );
+      const adapterPath = path.resolve(adapterOutputDir, adapterName);
+      const createdAt = new Date().toISOString();
+
+      ensureDirectory(adapterOutputDir);
+      ensureDirectory(adapterPath);
+      ensureDirectory(path.dirname(loraRegistryFile));
+
+      const manifest = {
+        adapterName,
+        type: 'example-adapter',
+        createdAt,
+        projectRoot: runtime.rootDir,
+        outputDir: adapterOutputDir,
+        note: 'Generated placeholder adapter for UI integration and path verification.',
+      };
+      fs.writeFileSync(path.resolve(adapterPath, 'adapter.example.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+
+      const registry = readJsonFileSafe(loraRegistryFile, {
+        updatedAt: null,
+        activeAdapter: '',
+        adapters: [],
+      });
+      const adapters = Array.isArray(registry.adapters) ? registry.adapters : [];
+      const entry = {
+        adapterName,
+        expectedAdapterPath: adapterPath,
+        datasetTier: 'example',
+        sampleCount: 0,
+        curatedCount: 0,
+        baseModel: String(runtime?.lora?.defaultBaseModel || ''),
+        adapterStrategy: 'example',
+        autoPromote: promote,
+        dryRun: true,
+        startedAt: createdAt,
+        finishedAt: createdAt,
+        jobId: '',
+        reportFile: '',
+      };
+
+      const filtered = adapters.filter((item) => String(item?.adapterName || '') !== adapterName);
+      filtered.unshift(entry);
+
+      const activeAdapter = promote ? adapterName : String(registry.activeAdapter || '');
+      const nextRegistry = {
+        updatedAt: createdAt,
+        activeAdapter,
+        adapters: filtered.slice(0, 100),
+      };
+      fs.writeFileSync(loraRegistryFile, `${JSON.stringify(nextRegistry, null, 2)}\n`, 'utf8');
+
+      return res.json({
+        ok: true,
+        requestId: req.requestId,
+        exampleAdapter: {
+          adapterName,
+          adapterPath,
+          adapterOutputDir,
+          registryFile: loraRegistryFile,
+          activeAdapter,
+          manifestFile: path.resolve(adapterPath, 'adapter.example.json'),
+        },
       });
     } catch (error) {
       return sendErrorResponse(res, 500, error.message, req.requestId);

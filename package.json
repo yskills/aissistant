@@ -1,6 +1,6 @@
 {
   "name": "@luna/assistant-core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "main": "src/index.js",
   "engines": {
@@ -27,6 +27,7 @@
   "exports": {
     ".": "./src/index.js",
     "./v1": "./src/public/v1.js",
+    "./client": "./src/client/assistantApiClient.js",
     "./service": "./src/service/createAssistantServiceApp.js",
     "./training/lora": "./src/training/LoraTrainingGateway.js",
     "./services/CompanionLLMService": "./src/services/CompanionLLMService.js",

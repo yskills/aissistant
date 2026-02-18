@@ -27,6 +27,16 @@ const router = createAssistantRouter({ CompanionLLMService: service });
 app.use('/assistant', router);
 ```
 
+Frontend-Helper direkt importieren (kein Copy/Paste nötig):
+
+```js
+import { createAssistantApiClient } from '@luna/assistant-core/client';
+
+const assistantApi = createAssistantApiClient({ baseUrl: '/assistant' });
+await assistantApi.toggleMode({ characterId: 'luna' });
+const status = await assistantApi.trainStatus(20);
+```
+
 ## Training
 
 Standard-Flow:
@@ -54,6 +64,12 @@ Empfohlen:
 
 Aktiver Adapter steht in:
 - `reports/training/lora-adapters.json` (`activeAdapter`)
+
+Adapter-Pfad (default):
+- `data/adapters/<adapterName>`
+
+API zum schnellen UI-Test ohne echten Trainer:
+- `POST /assistant/training/lora/example-adapter`
 
 ## Mehr Details
 
