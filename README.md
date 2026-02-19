@@ -60,3 +60,4 @@ npm run train:luna
 - Training hier im Projekt: `TRAINING-GUIDE-DE.md`
 - Setup in anderen Projekten: `SETUP-OTHER-PROJECTS-DE.md`
 - WSL2-Ressourcen-Vorlage: `.wslconfig.example`
+- Release-Workflow: `RELEASE-GUIDE-DE.md`

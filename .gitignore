@@ -3,3 +3,6 @@ data/
 reports/
 *.log
 .env
+.cache/
+*.tgz
+coverage/

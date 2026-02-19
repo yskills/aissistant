@@ -9,14 +9,17 @@
   "files": [
     "src",
     "scripts",
-    "config",
+    "config/eval",
+    "config/assistant-mode-config.example.json",
     "README.md",
     "TRAINING-GUIDE-DE.md",
-    "SETUP-OTHER-PROJECTS-DE.md"
+    "SETUP-OTHER-PROJECTS-DE.md",
+    "RELEASE-GUIDE-DE.md"
   ],
   "scripts": {
     "start": "node src/devServer.js",
     "dev": "node src/devServer.js",
+    "clean:temp": "node scripts/maintenance/clean-workspace.js",
     "lora:trainer:ensure": "node scripts/training/ensure-lora-trainer-up.js",
     "lora:trainer:up": "docker compose -f docker-compose.lora-trainer.yml up -d --build",
     "lora:trainer:down": "docker compose -f docker-compose.lora-trainer.yml down",
@@ -33,7 +36,16 @@
     "smoke:core": "node scripts/smoke/run-smoke-checks.js",
     "test": "npm run quality:check",
     "test:contracts": "node --test tests",
-    "quality:check": "npm run smoke:core && npm run test:contracts"
+    "quality:check": "npm run smoke:core && npm run test:contracts",
+    "release:check": "npm run clean:temp && npm test && npm pack --dry-run",
+    "release:patch": "npm run release:check && npm version patch",
+    "release:minor": "npm run release:check && npm version minor",
+    "release:major": "npm run release:check && npm version major",
+    "release:push": "git push origin main --follow-tags",
+    "release:full:patch": "npm run release:patch && npm run release:push",
+    "release:full:minor": "npm run release:minor && npm run release:push",
+    "release:full:major": "npm run release:major && npm run release:push",
+    "release:publish": "npm publish --access public"
   },
   "exports": {
     ".": "./src/index.js",
