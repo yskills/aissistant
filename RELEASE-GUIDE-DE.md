@@ -8,7 +8,6 @@ Kurzworkflow für `@luna/assistant-core`.
 2. Lokal prüfen
 3. Version erhöhen (SemVer)
 4. Git push + Tag push
-5. Optional: npm publish
 
 ## 1) Code ändern
 
@@ -65,17 +64,6 @@ Komplett in einem Schritt (ohne npm publish):
 npm run release:full:patch
 ```
 
-## 5) Optional npm veröffentlichen
-
-Nur wenn du wirklich ins npm-Registry releasen willst:
-
-```bash
-npm login
-npm run release:publish
-```
-
-Für scoped packages wie `@luna/assistant-core` ist `--access public` bereits gesetzt.
-
 ## Worauf du achten musst
 
 - Arbeitsbaum muss sauber sein vor `npm version`.
@@ -84,4 +72,4 @@ Für scoped packages wie `@luna/assistant-core` ist `--access public` bereits ge
   - `minor`: neue Features, rückwärtskompatibel
   - `major`: Breaking Changes
 - Bei API-Änderungen kurz Changelog/README aktualisieren.
-- Vor `npm publish` sicherstellen, dass `files` in `package.json` nur gewünschte Inhalte enthält.
+- Vor dem Tag-Push sicherstellen, dass `files` in `package.json` nur gewünschte Inhalte enthält.

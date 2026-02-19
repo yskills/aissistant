@@ -44,8 +44,7 @@
     "release:push": "git push origin main --follow-tags",
     "release:full:patch": "npm run release:patch && npm run release:push",
     "release:full:minor": "npm run release:minor && npm run release:push",
-    "release:full:major": "npm run release:major && npm run release:push",
-    "release:publish": "npm publish --access public"
+    "release:full:major": "npm run release:major && npm run release:push"
   },
   "exports": {
     ".": "./src/index.js",
