@@ -18,6 +18,23 @@ function defaultFormatUsd(value) {
   return `$${numeric.toFixed(2)}`;
 }
 
+function assertCompanionServiceContract(service) {
+  const requiredMethods = [
+    'chat',
+    'getMode',
+    'setMode',
+    'getSettings',
+    'updateSettings',
+    'resetAllState',
+  ];
+
+  for (const methodName of requiredMethods) {
+    if (typeof service?.[methodName] !== 'function') {
+      throw new Error(`CompanionService is missing required method: ${methodName}`);
+    }
+  }
+}
+
 export function createAssistantServiceApp({
   CompanionService = CompanionLLMService,
   AlpacaService = {
@@ -32,6 +49,9 @@ export function createAssistantServiceApp({
   jsonLimit = '1mb',
   enableCors = false,
 } = {}) {
+  // Fail-fast bei fehlerhafter Service-Integration statt stiller Runtime-Fehler.
+  assertCompanionServiceContract(CompanionService);
+
   const app = express();
 
   app.use((req, _res, next) => {

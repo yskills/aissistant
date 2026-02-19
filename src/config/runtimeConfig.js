@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 
+const DEFAULT_LORA_REQUEST_TIMEOUT_MS = 45_000;
+
 function resolvePath(baseDir, maybePath, fallbackSegments = []) {
   const candidate = String(maybePath || '').trim();
   if (candidate) {
@@ -27,6 +29,8 @@ function toBoolean(value, fallback = false) {
 }
 
 export function resolveRuntimeConfig({ env = process.env, cwd = process.cwd() } = {}) {
+  // Alle Pfade werden bewusst aus einem Root abgeleitet,
+  // damit Scripts/Service lokal und in Consumer-Projekten konsistent laufen.
   const rootDir = path.resolve(cwd, String(env.ASSISTANT_BASE_DIR || '.'));
   const memoryDir = resolvePath(rootDir, env.ASSISTANT_MEMORY_DIR, ['data']);
   const reportsDir = resolvePath(rootDir, env.ASSISTANT_REPORTS_DIR, ['reports']);
@@ -76,6 +80,11 @@ export function resolveRuntimeConfig({ env = process.env, cwd = process.cwd() } 
       rank: toNumber(env.ASSISTANT_LORA_RANK, 16, { min: 1 }),
       alpha: toNumber(env.ASSISTANT_LORA_ALPHA, 32, { min: 1 }),
       dropout: toNumber(env.ASSISTANT_LORA_DROPOUT, 0.05, { min: 0, max: 1 }),
+      requestTimeoutMs: toNumber(
+        env.ASSISTANT_LORA_REQUEST_TIMEOUT_MS,
+        DEFAULT_LORA_REQUEST_TIMEOUT_MS,
+        { min: 1_000, max: 300_000 },
+      ),
     },
   };
 }

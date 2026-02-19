@@ -3,6 +3,9 @@ import path from 'path';
 import express from 'express';
 import createAssistantServiceApp from './service/createAssistantServiceApp.js';
 import { resolveRuntimeConfig } from './config/runtimeConfig.js';
+import { loadDotEnv } from './config/loadDotEnv.js';
+
+loadDotEnv();
 
 const runtime = resolveRuntimeConfig();
 const PORT = Math.max(1, Number(process.env.PORT || 5050));

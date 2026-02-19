@@ -1,0 +1,12 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Lora Trainer Ensure Up",
+      "type": "shell",
+      "command": "npm",
+      "args": ["run", "lora:trainer:ensure"],
+      "problemMatcher": []
+    }
+  ]
+}

@@ -1,5 +1,7 @@
 import { resolveRuntimeConfig } from '../config/runtimeConfig.js';
 
+const DEFAULT_HTTP_TIMEOUT_MS = 45_000;
+
 function trimTrailingSlash(value = '') {
   return String(value || '').replace(/\/+$/, '');
 }
@@ -13,6 +15,25 @@ function parseJsonSafe(raw, fallbackValue = null) {
     return JSON.parse(raw);
   } catch {
     return fallbackValue;
+  }
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_HTTP_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error(`LoRA provider request timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -33,6 +54,7 @@ export class LoraTrainingGateway {
       defaultBaseModel: this.config.defaultBaseModel || '',
       defaultAdapterName: this.config.defaultAdapterName || 'luna-adapter',
       defaultDatasetTier: this.config.defaultDatasetTier || 'curated',
+      requestTimeoutMs: Number(this.config.requestTimeoutMs || DEFAULT_HTTP_TIMEOUT_MS),
       defaults: {
         learningRate: Number(this.config.learningRate || 0.0002),
         epochs: Number(this.config.epochs || 3),
@@ -83,6 +105,28 @@ export class LoraTrainingGateway {
     };
   }
 
+  async requestJson(pathValue = '', { method = 'GET', body = null } = {}) {
+    const url = this.buildUrl(pathValue);
+    const response = await fetchWithTimeout(
+      url,
+      {
+        method,
+        headers: this.buildHeaders(),
+        body: body == null ? undefined : JSON.stringify(body),
+      },
+      Number(this.config.requestTimeoutMs || DEFAULT_HTTP_TIMEOUT_MS),
+    );
+
+    const responseText = await response.text();
+    const responseJson = parseJsonSafe(responseText, null);
+    return {
+      ok: response.ok,
+      status: response.status,
+      responseText,
+      responseJson,
+    };
+  }
+
   async startJob({
     datasetPath,
     datasetTier = null,
@@ -116,18 +160,13 @@ export class LoraTrainingGateway {
       throw new Error('LoRA start requires datasetPath.');
     }
 
-    const url = this.buildUrl(this.config.startPath || '/jobs');
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: this.buildHeaders(),
-      body: JSON.stringify(payload),
-    });
+    const { ok, status, responseText, responseJson } = await this.requestJson(
+      this.config.startPath || '/jobs',
+      { method: 'POST', body: payload },
+    );
 
-    const responseText = await response.text();
-    const responseJson = parseJsonSafe(responseText, null);
-
-    if (!response.ok) {
-      throw new Error(`LoRA job start failed (${response.status}): ${responseText.slice(0, 500)}`);
+    if (!ok) {
+      throw new Error(`LoRA job start failed (${status}): ${responseText.slice(0, 500)}`);
     }
 
     const jobId = String(
@@ -155,23 +194,34 @@ export class LoraTrainingGateway {
 
     const template = this.config.statusPathTemplate || '/jobs/{jobId}';
     const statusPath = template.replace('{jobId}', encodeURIComponent(normalizedJobId));
-    const url = this.buildUrl(statusPath);
-
-    const response = await fetch(url, {
+    const { ok, status, responseText, responseJson } = await this.requestJson(statusPath, {
       method: 'GET',
-      headers: this.buildHeaders(),
     });
 
-    const responseText = await response.text();
-    const responseJson = parseJsonSafe(responseText, null);
-
-    if (!response.ok) {
-      throw new Error(`LoRA status failed (${response.status}): ${responseText.slice(0, 500)}`);
+    if (!ok) {
+      throw new Error(`LoRA status failed (${status}): ${responseText.slice(0, 500)}`);
     }
 
     return {
       ok: true,
       jobId: normalizedJobId,
+      response: responseJson || { raw: responseText },
+    };
+  }
+
+  async getProviderHealth() {
+    this.validateReady();
+
+    const { ok, status, responseText, responseJson } = await this.requestJson('/health', {
+      method: 'GET',
+    });
+
+    if (!ok) {
+      throw new Error(`LoRA provider health failed (${status}): ${responseText.slice(0, 500)}`);
+    }
+
+    return {
+      ok: true,
       response: responseJson || { raw: responseText },
     };
   }

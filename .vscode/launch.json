@@ -7,6 +7,26 @@
       "name": "Luna Dev UI (F5 + Chrome)",
       "program": "${workspaceFolder}/src/devServer.js",
       "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": {
+        "PORT": "5050"
+      },
+      "console": "integratedTerminal",
+      "serverReadyAction": {
+        "action": "debugWithChrome",
+        "pattern": "Assistant Dev UI läuft auf (https?://\\S+)",
+        "uriFormat": "%s",
+        "webRoot": "${workspaceFolder}/web"
+      }
+    },
+    {
+      "type": "pwa-node",
+      "request": "launch",
+      "name": "Luna Dev UI (+ Trainer Ensure)",
+      "preLaunchTask": "Lora Trainer Ensure Up",
+      "program": "${workspaceFolder}/src/devServer.js",
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
       "env": {
         "PORT": "5050"
       },

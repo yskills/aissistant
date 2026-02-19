@@ -1,0 +1,19 @@
+services:
+  lora-trainer:
+    build:
+      context: .
+      dockerfile: trainer/lora_service/Dockerfile
+    container_name: luna-lora-trainer
+    ports:
+      - "6060:6060"
+    environment:
+      LORA_JOB_STATE_FILE: /workspace/reports/trainer/jobs.json
+      LORA_DEFAULT_BASE_MODEL: Qwen/Qwen2.5-0.5B-Instruct
+      HF_HOME: /workspace/.cache/huggingface
+      TOKENIZERS_PARALLELISM: "false"
+    volumes:
+      - ./data:/workspace/data
+      - ./reports:/workspace/reports
+      - ./trainer:/workspace/trainer
+      - ./.cache/huggingface:/workspace/.cache/huggingface
+    restart: unless-stopped
