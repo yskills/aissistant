@@ -5,14 +5,19 @@ So bindest du `@luna/assistant-core` in ein externes Projekt ein und nutzt dense
 ## 1) Installation
 
 ```bash
-npm install @luna/assistant-core
 npm install express better-sqlite3 ollama
 ```
 
-Wenn noch nicht auf npm veröffentlicht:
+Aktuell (bis npm-Publish) über GitHub-Tag installieren:
 
 ```bash
-npm install github:yskills/aissistant#main
+npm install github:yskills/aissistant#v0.1.4
+```
+
+Später optional über npm Registry (sobald veröffentlicht):
+
+```bash
+npm install @luna/assistant-core
 ```
 
 ## 1.1) Empfohlener Ablauf im Consumer-Projekt
