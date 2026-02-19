@@ -44,6 +44,26 @@ export function createAssistantApiClient({
   return {
     request,
 
+    getBrief(characterId = 'luna') {
+      return request(`/brief${buildQuery({ characterId })}`);
+    },
+
+    reset(characterId = 'luna') {
+      return request('/reset', { method: 'POST', body: { characterId } });
+    },
+
+    getSettings(characterId = 'luna') {
+      return request(`/settings${buildQuery({ characterId })}`);
+    },
+
+    updateSettings({ characterId = 'luna', patch = {} } = {}) {
+      return request('/settings', { method: 'POST', body: { characterId, ...(patch || {}) } });
+    },
+
+    setProfile({ characterId = 'luna', preferredName = '' } = {}) {
+      return request('/profile', { method: 'POST', body: { characterId, preferredName } });
+    },
+
     getMode(characterId = 'luna') {
       return request(`/mode${buildQuery({ characterId })}`);
     },
@@ -52,10 +72,64 @@ export function createAssistantApiClient({
       return request('/mode', { method: 'POST', body: { characterId, mode, password } });
     },
 
+    getModeExtras(characterId = 'luna') {
+      return request(`/mode-extras${buildQuery({ characterId })}`);
+    },
+
+    setModeExtras({ characterId = 'luna', instructions = [], memories = [] } = {}) {
+      return request('/mode-extras', {
+        method: 'POST',
+        body: { characterId, instructions, memories },
+      });
+    },
+
     async toggleMode({ characterId = 'luna', password = '' } = {}) {
       const current = await this.getMode(characterId);
       const nextMode = current?.mode === 'normal' ? 'uncensored' : 'normal';
       return this.setMode({ characterId, mode: nextMode, password });
+    },
+
+    webSearchPreview({ characterId = 'luna', message = '' } = {}) {
+      return request('/web-search/preview', {
+        method: 'POST',
+        body: { characterId, message },
+      });
+    },
+
+    addFeedback(payload = {}) {
+      return request('/feedback', { method: 'POST', body: payload || {} });
+    },
+
+    addTrainingExample(payload = {}) {
+      return request('/training/example', { method: 'POST', body: payload || {} });
+    },
+
+    pruneMemory(payload = {}) {
+      return request('/memory/prune', { method: 'POST', body: payload || {} });
+    },
+
+    deleteMemoryByDate(payload = {}) {
+      return request('/memory/delete-date', { method: 'POST', body: payload || {} });
+    },
+
+    deleteMemoryRecent(payload = {}) {
+      return request('/memory/delete-recent', { method: 'POST', body: payload || {} });
+    },
+
+    deleteMemoryByTag(payload = {}) {
+      return request('/memory/delete-tag', { method: 'POST', body: payload || {} });
+    },
+
+    deleteMemoryItem(payload = {}) {
+      return request('/memory/delete-item', { method: 'POST', body: payload || {} });
+    },
+
+    chat(payload = {}) {
+      return request('/chat', { method: 'POST', body: payload || {} });
+    },
+
+    getCharacters() {
+      return request('/characters');
     },
 
     trainPrepare() {
@@ -74,6 +148,14 @@ export function createAssistantApiClient({
       return request('/training/lora/config');
     },
 
+    trainLoraProviderHealth() {
+      return request('/training/lora/provider-health');
+    },
+
+    trainLoraEnsureTrainer(payload = {}) {
+      return request('/training/lora/trainer/ensure', { method: 'POST', body: payload || {} });
+    },
+
     trainLoraStart(payload = {}) {
       return request('/training/lora/start', { method: 'POST', body: payload || {} });
     },
@@ -84,6 +166,10 @@ export function createAssistantApiClient({
 
     createExampleAdapter(payload = {}) {
       return request('/training/lora/example-adapter', { method: 'POST', body: payload || {} });
+    },
+
+    trainLoraQuickStart(payload = {}) {
+      return request('/training/lora/quick-start', { method: 'POST', body: payload || {} });
     },
   };
 }

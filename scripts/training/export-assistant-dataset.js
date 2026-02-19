@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import {
   assertFileExists,
   ensureDirectory,
@@ -11,7 +12,13 @@ const OUTPUT_DIR = runtime.trainingDir;
 const OUTPUT_FILE_MERGED = path.join(OUTPUT_DIR, 'assistant-sft.jsonl');
 const OUTPUT_FILE_CURATED = path.join(OUTPUT_DIR, 'assistant-sft-curated.jsonl');
 const OUTPUT_FILE_MEMORY = path.join(OUTPUT_DIR, 'assistant-sft-memory.jsonl');
+const OUTPUT_FILE_CURATED_TRAIN = path.join(OUTPUT_DIR, 'assistant-sft-curated-train.jsonl');
+const OUTPUT_FILE_CURATED_VAL = path.join(OUTPUT_DIR, 'assistant-sft-curated-val.jsonl');
+const OUTPUT_FILE_CURATED_TEST = path.join(OUTPUT_DIR, 'assistant-sft-curated-test.jsonl');
 const OUTPUT_FILE_SUMMARY = path.join(OUTPUT_DIR, 'assistant-sft-summary.json');
+
+const DEFAULT_VAL_RATIO = Number(process.env.ASSISTANT_TRAIN_VAL_RATIO || 0.1);
+const DEFAULT_TEST_RATIO = Number(process.env.ASSISTANT_TRAIN_TEST_RATIO || 0.0);
 
 function normalizeText(value = '') {
   return String(value || '').replace(/\s+/g, ' ').trim();
@@ -50,6 +57,62 @@ function dedupePairs(pairs = []) {
     seen.add(key);
     return true;
   });
+}
+
+function clampRatio(value = 0, min = 0, max = 0.9) {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, value));
+}
+
+function stableBucketNumber(pair = {}) {
+  const key = `${pair.mode || 'normal'}::${pair.user || ''}::${pair.assistant || ''}`;
+  const digest = crypto.createHash('sha1').update(key).digest('hex');
+  const first8 = digest.slice(0, 8);
+  const intValue = Number.parseInt(first8, 16);
+  const max = 0xffffffff;
+  return intValue / max;
+}
+
+function splitCuratedPairs(curated = [], valRatio = DEFAULT_VAL_RATIO, testRatio = DEFAULT_TEST_RATIO) {
+  const normalizedTestRatio = clampRatio(testRatio, 0, 0.4);
+  const normalizedValRatio = clampRatio(valRatio, 0, 0.4);
+  const totalHoldout = Math.min(0.8, normalizedValRatio + normalizedTestRatio);
+
+  const result = {
+    train: [],
+    val: [],
+    test: [],
+    ratios: {
+      val: normalizedValRatio,
+      test: normalizedTestRatio,
+      train: 1 - totalHoldout,
+    },
+  };
+
+  for (const pair of Array.isArray(curated) ? curated : []) {
+    const bucket = stableBucketNumber(pair);
+    if (bucket < normalizedTestRatio) {
+      result.test.push(pair);
+      continue;
+    }
+    if (bucket < normalizedTestRatio + normalizedValRatio) {
+      result.val.push(pair);
+      continue;
+    }
+    result.train.push(pair);
+  }
+
+  const curatedCount = Array.isArray(curated) ? curated.length : 0;
+  if (normalizedValRatio > 0 && curatedCount >= 10 && result.val.length === 0 && result.train.length > 1) {
+    result.val.push(result.train.pop());
+  }
+
+  if (result.train.length === 0 && (result.val.length > 0 || result.test.length > 0)) {
+    const fallback = result.val.pop() || result.test.pop();
+    if (fallback) result.train.push(fallback);
+  }
+
+  return result;
 }
 
 function collectPairs(memory = { users: {} }) {
@@ -135,18 +198,34 @@ async function main() {
   writeJsonlFile(OUTPUT_FILE_MEMORY, datasets.memoryOnly);
   writeJsonlFile(OUTPUT_FILE_MERGED, datasets.merged);
 
+  const curatedSplit = splitCuratedPairs(datasets.curated, DEFAULT_VAL_RATIO, DEFAULT_TEST_RATIO);
+  writeJsonlFile(OUTPUT_FILE_CURATED_TRAIN, curatedSplit.train);
+  writeJsonlFile(OUTPUT_FILE_CURATED_VAL, curatedSplit.val);
+  writeJsonlFile(OUTPUT_FILE_CURATED_TEST, curatedSplit.test);
+
   const summary = {
     generatedAt: new Date().toISOString(),
     outputFiles: {
       curated: OUTPUT_FILE_CURATED,
+      curatedTrain: OUTPUT_FILE_CURATED_TRAIN,
+      curatedVal: OUTPUT_FILE_CURATED_VAL,
+      curatedTest: OUTPUT_FILE_CURATED_TEST,
       memoryOnly: OUTPUT_FILE_MEMORY,
       merged: OUTPUT_FILE_MERGED,
       summary: OUTPUT_FILE_SUMMARY,
     },
     samples: {
       curated: datasets.curated.length,
+      curatedTrain: curatedSplit.train.length,
+      curatedVal: curatedSplit.val.length,
+      curatedTest: curatedSplit.test.length,
       memoryOnly: datasets.memoryOnly.length,
       merged: datasets.merged.length,
+    },
+    split: {
+      strategy: 'deterministic-hash',
+      seed: 'sha1(mode::user::assistant)',
+      ratios: curatedSplit.ratios,
     },
     users: Object.keys(memory?.users || {}).length,
   };

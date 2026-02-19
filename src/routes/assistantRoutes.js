@@ -11,6 +11,8 @@ const UNCENSORED_MODE_PASSWORD = String(
 ).trim();
 const UNCENSORED_AUTH_WINDOW_MS = Number(process.env.UNCENSORED_AUTH_WINDOW_MS || 5 * 60 * 1000);
 const UNCENSORED_AUTH_MAX_ATTEMPTS = Number(process.env.UNCENSORED_AUTH_MAX_ATTEMPTS || 5);
+// In-Memory Rate-Limit pro IP für uncensored Passwortversuche.
+// Absichtlich einfach gehalten, da dieses Modul zustandslos neu startbar sein soll.
 const uncensoredAuthAttempts = new Map();
 
 function getClientIp(req) {
@@ -147,6 +149,15 @@ function parseTruthy(value) {
   return ['1', 'true', 'yes', 'on'].includes(String(value || '').toLowerCase());
 }
 
+function parsePositiveInt(value, fallback = 1, { min = 1, max = Number.MAX_SAFE_INTEGER } = {}) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  const normalized = Math.trunc(parsed);
+  if (normalized < min) return min;
+  if (normalized > max) return max;
+  return normalized;
+}
+
 function readJsonFileSafe(filePath, fallbackValue = null) {
   if (!fs.existsSync(filePath)) return fallbackValue;
   try {
@@ -162,16 +173,6 @@ function ensureDirectory(dirPath = '') {
   if (!fs.existsSync(dirPath)) {
     fs.mkdirSync(dirPath, { recursive: true });
   }
-}
-
-function normalizeAdapterName(value = '', fallback = 'luna-adapter-example') {
-  const candidate = String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '');
-  return candidate || fallback;
 }
 
 function resolveLoraFiles(runtime) {
@@ -195,6 +196,144 @@ function buildAdapterPaths({ adapterOutputDir = '', activeAdapter = '', loraLate
     activeAdapter: activeName,
     activeAdapterPath,
     latestExpectedAdapterPath,
+  };
+}
+
+function runTrainingCommand({ runtime, args = [], timeoutMs = 20 * 60 * 1000 } = {}) {
+  // Zentrale Ausführung aller npm-basierten Trainingskommandos,
+  // damit Fehlerdarstellung und Parsing überall identisch sind.
+  const result = spawnSync(runtime.npmCommand, args, {
+    cwd: runtime.scriptsWorkingDir,
+    encoding: 'utf8',
+    timeout: timeoutMs,
+    shell: process.platform === 'win32',
+  });
+
+  const stdout = String(result?.stdout || '').trim();
+  const stderr = String(result?.stderr || '').trim();
+  const exitCode = Number(result?.status ?? 1);
+  const parsed = parseLastJsonFromOutput(stdout);
+
+  return {
+    stdout,
+    stderr,
+    exitCode,
+    parsed,
+  };
+}
+
+function runNpmScriptCommand({ runtime, scriptName = '', scriptArgs = [], timeoutMs } = {}) {
+  const script = String(scriptName || '').trim();
+  if (!script) {
+    throw new Error('scriptName is required');
+  }
+
+  const args = ['run', script];
+  if (Array.isArray(scriptArgs) && scriptArgs.length > 0) {
+    args.push('--', ...scriptArgs.map((value) => String(value)));
+  }
+
+  return runTrainingCommand({ runtime, args, timeoutMs });
+}
+
+function resolveMessagePair({ userMessage = '', assistantMessage = '' } = {}) {
+  const user = String(userMessage || '').trim();
+  const assistant = String(assistantMessage || '').trim();
+  const hasUser = user.length > 0;
+  const hasAssistant = assistant.length > 0;
+
+  if (hasUser !== hasAssistant) {
+    throw new Error('userMessage and assistantMessage must be both provided or both omitted.');
+  }
+
+  return {
+    hasPair: hasUser && hasAssistant,
+    user,
+    assistant,
+  };
+}
+
+function shouldEnsureTrainerOnDemand(body = {}) {
+  if (body && Object.prototype.hasOwnProperty.call(body, 'ensureTrainer')) {
+    return parseTruthy(body.ensureTrainer);
+  }
+  return parseTruthy(process.env.ASSISTANT_LORA_ENSURE_ON_DEMAND || 'true');
+}
+
+function ensureLoraTrainerOnDemand({ runtime, body = {}, timeoutMs = 4 * 60 * 1000 } = {}) {
+  if (!runtime?.lora?.enabled) {
+    return {
+      attempted: false,
+      reason: 'lora-disabled',
+      exitCode: 0,
+    };
+  }
+
+  if (!shouldEnsureTrainerOnDemand(body)) {
+    return {
+      attempted: false,
+      reason: 'disabled-by-config',
+      exitCode: 0,
+    };
+  }
+
+  const { stdout, stderr, exitCode } = runNpmScriptCommand({
+    runtime,
+    scriptName: 'lora:trainer:ensure',
+    timeoutMs,
+  });
+
+  if (exitCode !== 0) {
+    throw new Error(`lora:trainer:ensure failed (exit ${exitCode})${stderr ? `: ${stderr.slice(-400)}` : ''}`);
+  }
+
+  return {
+    attempted: true,
+    reason: 'on-demand',
+    exitCode,
+    stdoutTail: stdout.slice(-1200),
+  };
+}
+
+function buildLoraCliArgs({
+  body = {},
+  runtime,
+  minCuratedDefault = null,
+  skipEvalDefault = false,
+  skipExportDefault = false,
+} = {}) {
+  const datasetTier = String(body.datasetTier || runtime?.lora?.defaultDatasetTier || 'curated').trim().toLowerCase();
+  const minCurated = Math.max(1, Number(body.minCurated || minCuratedDefault || runtime.trainMinCurated || 20));
+  const baseModel = String(body.baseModel || runtime?.lora?.defaultBaseModel || '').trim();
+  const adapterName = String(body.adapterName || runtime?.lora?.defaultAdapterName || 'luna-adapter').trim();
+
+  const dryRun = parseTruthy(body.dryRun);
+  const skipEval = body.skipEval == null ? skipEvalDefault : parseTruthy(body.skipEval);
+  const skipExport = body.skipExport == null ? skipExportDefault : parseTruthy(body.skipExport);
+
+  const learningRate = Number(body.learningRate);
+  const epochs = Number(body.epochs);
+  const batchSize = Number(body.batchSize);
+  const rank = Number(body.rank);
+  const alpha = Number(body.alpha);
+  const dropout = Number(body.dropout);
+
+  const args = ['run', 'train:lora', '--', `--datasetTier=${datasetTier}`, `--minCurated=${minCurated}`];
+  if (baseModel) args.push(`--baseModel=${baseModel}`);
+  if (adapterName) args.push(`--adapterName=${adapterName}`);
+  if (dryRun) args.push('--dryRun');
+  if (skipEval) args.push('--skipEval');
+  if (skipExport) args.push('--skipExport');
+  if (Number.isFinite(learningRate)) args.push(`--learningRate=${learningRate}`);
+  if (Number.isFinite(epochs)) args.push(`--epochs=${epochs}`);
+  if (Number.isFinite(batchSize)) args.push(`--batchSize=${batchSize}`);
+  if (Number.isFinite(rank)) args.push(`--rank=${rank}`);
+  if (Number.isFinite(alpha)) args.push(`--alpha=${alpha}`);
+  if (Number.isFinite(dropout)) args.push(`--dropout=${dropout}`);
+
+  return {
+    args,
+    minCurated,
   };
 }
 
@@ -495,16 +634,11 @@ export default function createAssistantRouter({
 
   router.post('/training/prepare', (req, res) => {
     try {
-      const result = spawnSync(runtime.npmCommand, ['run', 'train:prepare'], {
-        cwd: runtime.scriptsWorkingDir,
-        encoding: 'utf8',
-        timeout: 10 * 60 * 1000,
-        shell: process.platform === 'win32',
+      const { stdout, stderr, exitCode } = runNpmScriptCommand({
+        runtime,
+        scriptName: 'train:prepare',
+        timeoutMs: 10 * 60 * 1000,
       });
-
-      const stdout = String(result?.stdout || '').trim();
-      const stderr = String(result?.stderr || '').trim();
-      const exitCode = Number(result?.status ?? 1);
 
       if (exitCode !== 0) {
         return sendErrorResponse(
@@ -530,18 +664,16 @@ export default function createAssistantRouter({
 
   router.post('/training/auto', (req, res) => {
     try {
-      const minCurated = Math.max(1, Number(req?.body?.minCurated || process.env.TRAIN_MIN_CURATED || 20));
-      const result = spawnSync(runtime.npmCommand, ['run', 'train:auto', '--', `--minCurated=${minCurated}`], {
-        cwd: runtime.scriptsWorkingDir,
-        encoding: 'utf8',
-        timeout: 12 * 60 * 1000,
-        shell: process.platform === 'win32',
+      const minCurated = parsePositiveInt(req?.body?.minCurated, runtime.trainMinCurated || 20, {
+        min: 1,
+        max: 1_000_000,
       });
-
-      const stdout = String(result?.stdout || '').trim();
-      const stderr = String(result?.stderr || '').trim();
-      const exitCode = Number(result?.status ?? 1);
-      const parsed = parseLastJsonFromOutput(stdout);
+      const { stdout, stderr, exitCode, parsed } = runNpmScriptCommand({
+        runtime,
+        scriptName: 'train:auto',
+        scriptArgs: [`--minCurated=${minCurated}`],
+        timeoutMs: 12 * 60 * 1000,
+      });
 
       if (exitCode !== 0) {
         return sendErrorResponse(
@@ -632,79 +764,155 @@ export default function createAssistantRouter({
     }
   });
 
-  router.post('/training/lora/example-adapter', (req, res) => {
+  router.get('/training/lora/provider-health', async (req, res) => {
+    try {
+      const config = loraGateway.getPublicConfig();
+      const ensureTrainer = parseTruthy(req?.query?.ensureTrainer);
+
+      if (!config.enabled) {
+        return res.json({
+          ok: true,
+          requestId: req.requestId,
+          provider: {
+            enabled: false,
+            reachable: false,
+            reason: 'LoRA disabled (ASSISTANT_LORA_ENABLED=false)',
+            health: null,
+          },
+        });
+      }
+
+      if (!config.apiBaseUrl) {
+        return res.json({
+          ok: true,
+          requestId: req.requestId,
+          provider: {
+            enabled: true,
+            reachable: false,
+            reason: 'Missing ASSISTANT_LORA_API_BASE_URL',
+            health: null,
+          },
+        });
+      }
+
+      let ensure = null;
+      if (ensureTrainer) {
+        ensure = ensureLoraTrainerOnDemand({
+          runtime,
+          body: { ensureTrainer: true },
+          timeoutMs: 4 * 60 * 1000,
+        });
+      }
+
+      const health = await loraGateway.getProviderHealth();
+      return res.json({
+        ok: true,
+        requestId: req.requestId,
+        provider: {
+          enabled: true,
+          reachable: true,
+          reason: '',
+          health: health?.response || null,
+          ensure,
+        },
+      });
+    } catch (error) {
+      return res.json({
+        ok: true,
+        requestId: req.requestId,
+        provider: {
+          enabled: true,
+          reachable: false,
+          reason: error.message,
+          health: null,
+        },
+      });
+    }
+  });
+
+  router.post('/training/lora/trainer/ensure', (req, res) => {
     try {
       const body = req.body || {};
-      const { loraRegistryFile, adapterOutputDir } = resolveLoraFiles(runtime);
-      const promote = body.promote == null ? true : parseTruthy(body.promote);
-      const prefix = normalizeAdapterName(
-        body.adapterPrefix || runtime?.lora?.defaultAdapterName || 'luna-adapter',
-        'luna-adapter',
-      );
-      const adapterName = normalizeAdapterName(
-        body.adapterName,
-        `${prefix}-example-${Date.now()}`,
-      );
-      const adapterPath = path.resolve(adapterOutputDir, adapterName);
-      const createdAt = new Date().toISOString();
-
-      ensureDirectory(adapterOutputDir);
-      ensureDirectory(adapterPath);
-      ensureDirectory(path.dirname(loraRegistryFile));
-
-      const manifest = {
-        adapterName,
-        type: 'example-adapter',
-        createdAt,
-        projectRoot: runtime.rootDir,
-        outputDir: adapterOutputDir,
-        note: 'Generated placeholder adapter for UI integration and path verification.',
-      };
-      fs.writeFileSync(path.resolve(adapterPath, 'adapter.example.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-
-      const registry = readJsonFileSafe(loraRegistryFile, {
-        updatedAt: null,
-        activeAdapter: '',
-        adapters: [],
-      });
-      const adapters = Array.isArray(registry.adapters) ? registry.adapters : [];
-      const entry = {
-        adapterName,
-        expectedAdapterPath: adapterPath,
-        datasetTier: 'example',
-        sampleCount: 0,
-        curatedCount: 0,
-        baseModel: String(runtime?.lora?.defaultBaseModel || ''),
-        adapterStrategy: 'example',
-        autoPromote: promote,
-        dryRun: true,
-        startedAt: createdAt,
-        finishedAt: createdAt,
-        jobId: '',
-        reportFile: '',
-      };
-
-      const filtered = adapters.filter((item) => String(item?.adapterName || '') !== adapterName);
-      filtered.unshift(entry);
-
-      const activeAdapter = promote ? adapterName : String(registry.activeAdapter || '');
-      const nextRegistry = {
-        updatedAt: createdAt,
-        activeAdapter,
-        adapters: filtered.slice(0, 100),
-      };
-      fs.writeFileSync(loraRegistryFile, `${JSON.stringify(nextRegistry, null, 2)}\n`, 'utf8');
+      const ensure = ensureLoraTrainerOnDemand({ runtime, body });
 
       return res.json({
         ok: true,
         requestId: req.requestId,
-        exampleAdapter: {
-          adapterName,
-          adapterPath,
-          adapterOutputDir,
-          registryFile: loraRegistryFile,
-          activeAdapter,
-          manifestFile: path.resolve(adapterPath, 'adapter.example.json'),
+        trainer: {
+          ensured: Boolean(ensure?.attempted),
+          ensure,
+          note: 'Ensures trainer availability without submitting a training job.',
+        },
+      });
+    } catch (error) {
+      return sendErrorResponse(res, 500, error.message, req.requestId);
+    }
+  });
+
+  router.post('/training/lora/example-adapter', (req, res) => {
+    try {
+      const body = req.body || {};
+      const userId = getAssistantUserId(req);
+      const ensure = ensureLoraTrainerOnDemand({ runtime, body });
+
+      const messagePair = resolveMessagePair({
+        userMessage: body.userMessage || body.user,
+        assistantMessage: body.assistantMessage || body.assistant,
+      });
+      let trainingExample = null;
+
+      if (messagePair.hasPair) {
+        const currentMode = CompanionLLMService.getMode(userId)?.mode || 'normal';
+        const mode = String(body.mode || currentMode).trim().toLowerCase() || currentMode;
+        trainingExample = CompanionLLMService.addTrainingExample(userId, {
+          mode,
+          source: String(body.source || 'example-adapter-start').trim() || 'example-adapter-start',
+          accepted: true,
+          user: messagePair.user,
+          assistant: messagePair.assistant,
+          userOriginal: messagePair.user,
+          assistantOriginal: messagePair.assistant,
+        });
+      }
+
+      const { args, minCurated } = buildLoraCliArgs({
+        body: {
+          ...body,
+          dryRun: false,
+          skipEval: body.skipEval == null ? true : body.skipEval,
+          skipExport: body.skipExport == null ? false : body.skipExport,
+          datasetTier: body.datasetTier || 'curated',
+          minCurated: body.minCurated || 1,
+        },
+        runtime,
+        minCuratedDefault: 1,
+        skipEvalDefault: true,
+        skipExportDefault: false,
+      });
+
+      const { stdout, stderr, exitCode, parsed } = runTrainingCommand({ runtime, args });
+
+      if (exitCode !== 0) {
+        return sendErrorResponse(
+          res,
+          500,
+          `train:lora example-adapter failed (exit ${exitCode})${stderr ? `: ${stderr.slice(-400)}` : ''}`,
+          req.requestId,
+        );
+      }
+
+      return res.json({
+        ok: true,
+        requestId: req.requestId,
+        training: {
+          exitCode,
+          minCurated,
+          exampleAdapter: true,
+          ensure,
+          trainingExample,
+          result: parsed,
+          stdoutTail: stdout.slice(-2500),
+          note: 'Starts real LoRA training (no placeholder generation).',
         },
       });
     } catch (error) {
@@ -747,44 +955,9 @@ export default function createAssistantRouter({
   router.post('/training/lora/start', (req, res) => {
     try {
       const body = req.body || {};
-      const datasetTier = String(body.datasetTier || runtime?.lora?.defaultDatasetTier || 'curated').trim().toLowerCase();
-      const minCurated = Math.max(1, Number(body.minCurated || runtime.trainMinCurated || 20));
-      const baseModel = String(body.baseModel || runtime?.lora?.defaultBaseModel || '').trim();
-      const adapterName = String(body.adapterName || runtime?.lora?.defaultAdapterName || 'luna-adapter').trim();
-      const dryRun = parseTruthy(body.dryRun);
-      const skipEval = parseTruthy(body.skipEval);
-      const skipExport = parseTruthy(body.skipExport);
-      const learningRate = Number(body.learningRate);
-      const epochs = Number(body.epochs);
-      const batchSize = Number(body.batchSize);
-      const rank = Number(body.rank);
-      const alpha = Number(body.alpha);
-      const dropout = Number(body.dropout);
-
-      const args = ['run', 'train:lora', '--', `--datasetTier=${datasetTier}`, `--minCurated=${minCurated}`];
-      if (baseModel) args.push(`--baseModel=${baseModel}`);
-      if (adapterName) args.push(`--adapterName=${adapterName}`);
-      if (dryRun) args.push('--dryRun');
-      if (skipEval) args.push('--skipEval');
-      if (skipExport) args.push('--skipExport');
-      if (Number.isFinite(learningRate)) args.push(`--learningRate=${learningRate}`);
-      if (Number.isFinite(epochs)) args.push(`--epochs=${epochs}`);
-      if (Number.isFinite(batchSize)) args.push(`--batchSize=${batchSize}`);
-      if (Number.isFinite(rank)) args.push(`--rank=${rank}`);
-      if (Number.isFinite(alpha)) args.push(`--alpha=${alpha}`);
-      if (Number.isFinite(dropout)) args.push(`--dropout=${dropout}`);
-
-      const result = spawnSync(runtime.npmCommand, args, {
-        cwd: runtime.scriptsWorkingDir,
-        encoding: 'utf8',
-        timeout: 20 * 60 * 1000,
-        shell: process.platform === 'win32',
-      });
-
-      const stdout = String(result?.stdout || '').trim();
-      const stderr = String(result?.stderr || '').trim();
-      const exitCode = Number(result?.status ?? 1);
-      const parsed = parseLastJsonFromOutput(stdout);
+      const ensure = ensureLoraTrainerOnDemand({ runtime, body });
+      const { args, minCurated } = buildLoraCliArgs({ body, runtime });
+      const { stdout, stderr, exitCode, parsed } = runTrainingCommand({ runtime, args });
 
       if (exitCode !== 0) {
         return sendErrorResponse(
@@ -800,8 +973,73 @@ export default function createAssistantRouter({
         requestId: req.requestId,
         training: {
           exitCode,
+          minCurated,
+          ensure,
           result: parsed,
           stdoutTail: stdout.slice(-2500),
+        },
+      });
+    } catch (error) {
+      return sendErrorResponse(res, 500, error.message, req.requestId);
+    }
+  });
+
+  router.post('/training/lora/quick-start', (req, res) => {
+    try {
+      const body = req.body || {};
+      const userId = getAssistantUserId(req);
+      const ensure = ensureLoraTrainerOnDemand({ runtime, body });
+
+      const userMessage = String(body.userMessage || body.user || '').trim();
+      const assistantMessage = String(body.assistantMessage || body.assistant || '').trim();
+      if (!userMessage || !assistantMessage) {
+        return sendErrorResponse(res, 400, 'userMessage and assistantMessage are required for quick LoRA start.', req.requestId);
+      }
+
+      const currentMode = CompanionLLMService.getMode(userId)?.mode || 'normal';
+      const mode = String(body.mode || currentMode).trim().toLowerCase() || currentMode;
+
+      const trainingExample = CompanionLLMService.addTrainingExample(userId, {
+        mode,
+        source: String(body.source || 'quick-lora-start').trim() || 'quick-lora-start',
+        accepted: true,
+        user: userMessage,
+        assistant: assistantMessage,
+        userOriginal: userMessage,
+        assistantOriginal: assistantMessage,
+      });
+
+      const { args, minCurated } = buildLoraCliArgs({
+        body,
+        runtime,
+        minCuratedDefault: 1,
+        skipEvalDefault: true,
+        skipExportDefault: false,
+      });
+
+      const { stdout, stderr, exitCode, parsed } = runTrainingCommand({ runtime, args });
+
+      if (exitCode !== 0) {
+        return sendErrorResponse(
+          res,
+          500,
+          `train:lora quick-start failed (exit ${exitCode})${stderr ? `: ${stderr.slice(-400)}` : ''}`,
+          req.requestId,
+        );
+      }
+
+      return res.json({
+        ok: true,
+        requestId: req.requestId,
+        training: {
+          exitCode,
+          minCurated,
+          quickStart: true,
+          ensure,
+          trainingExample,
+          result: parsed,
+          stdoutTail: stdout.slice(-2500),
+          note: 'This starts a real LoRA training submission. Requires configured LoRA provider endpoint.',
         },
       });
     } catch (error) {

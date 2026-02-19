@@ -26,14 +26,20 @@ function main() {
   const finishedAt = new Date().toISOString();
   const mergedPath = path.resolve(runtime.trainingDir, 'assistant-sft.jsonl');
   const curatedPath = path.resolve(runtime.trainingDir, 'assistant-sft-curated.jsonl');
+  const curatedTrainPath = path.resolve(runtime.trainingDir, 'assistant-sft-curated-train.jsonl');
+  const curatedValPath = path.resolve(runtime.trainingDir, 'assistant-sft-curated-val.jsonl');
+  const curatedTestPath = path.resolve(runtime.trainingDir, 'assistant-sft-curated-test.jsonl');
 
   console.log(JSON.stringify({
     ok: true,
     startedAt,
     finishedAt,
-    nextStep: 'Use assistant-sft-curated.jsonl for high-quality fine-tuning first.',
+    nextStep: 'Use assistant-sft-curated-train.jsonl for fine-tuning and assistant-sft-curated-val.jsonl for eval.',
     files: {
       curated: curatedPath,
+      curatedTrain: curatedTrainPath,
+      curatedVal: curatedValPath,
+      curatedTest: curatedTestPath,
       merged: mergedPath,
     },
   }, null, 2));

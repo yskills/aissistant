@@ -1,6 +1,6 @@
 {
   "name": "@luna/assistant-core",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "type": "module",
   "main": "src/index.js",
   "engines": {
@@ -11,18 +11,29 @@
     "scripts",
     "config",
     "README.md",
-    "INTEGRATION.md",
-    "TRAINREADME.md"
+    "TRAINING-GUIDE-DE.md",
+    "SETUP-OTHER-PROJECTS-DE.md"
   ],
   "scripts": {
     "start": "node src/devServer.js",
     "dev": "node src/devServer.js",
+    "lora:trainer:ensure": "node scripts/training/ensure-lora-trainer-up.js",
+    "lora:trainer:up": "docker compose -f docker-compose.lora-trainer.yml up -d --build",
+    "lora:trainer:down": "docker compose -f docker-compose.lora-trainer.yml down",
+    "lora:trainer:logs": "docker compose -f docker-compose.lora-trainer.yml logs -f lora-trainer",
     "eval:gate": "node scripts/eval/run-eval-gate.js",
     "train:export": "node scripts/training/export-assistant-dataset.js",
     "train:prepare": "node scripts/training/prepare-training-cycle.js",
     "train:auto": "node scripts/training/run-auto-training-cycle.js",
     "train:lora": "node scripts/training/run-lora-training-cycle.js",
-    "smoke:core": "node scripts/smoke/run-smoke-checks.js"
+    "train:luna": "node scripts/training/run-train-luna-adapter.js",
+    "optimize:windows": "powershell -ExecutionPolicy Bypass -File scripts/windows/optimize-windows.ps1",
+    "optimize:windows:apply": "powershell -ExecutionPolicy Bypass -File scripts/windows/optimize-windows.ps1 -Apply",
+    "optimize:windows:aggressive": "powershell -ExecutionPolicy Bypass -File scripts/windows/optimize-windows.ps1 -Apply -ApplyStartupTrim -PowerPlan high -CpuPercentOnBattery 90 -CpuPercentPluggedIn 100",
+    "smoke:core": "node scripts/smoke/run-smoke-checks.js",
+    "test": "npm run quality:check",
+    "test:contracts": "node --test tests",
+    "quality:check": "npm run smoke:core && npm run test:contracts"
   },
   "exports": {
     ".": "./src/index.js",
@@ -38,5 +49,10 @@
     "better-sqlite3": "^11.0.0",
     "express": "^4.18.0",
     "ollama": "^0.5.0"
+  },
+  "devDependencies": {
+    "better-sqlite3": "^11.10.0",
+    "express": "^4.21.2",
+    "ollama": "^0.5.14"
   }
 }
