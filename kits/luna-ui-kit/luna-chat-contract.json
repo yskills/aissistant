@@ -29,6 +29,8 @@
     },
     "model": {
       "settings": { "method": "GET", "path": "/assistant/settings?characterId=luna" },
+      "lunaPresets": { "method": "GET", "path": "/assistant/luna/presets" },
+      "applyLunaPreset": { "method": "POST", "path": "/assistant/luna/presets/apply" },
       "recommendedEnv": {
         "LLM_PROVIDER": "ollama",
         "LLM_MODEL": "luna:latest",

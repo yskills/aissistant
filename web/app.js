@@ -301,6 +301,7 @@ class AssistantDevUi {
       btnVoiceSave: document.getElementById('btnVoiceSave'),
       btnConversation: document.getElementById('btnConversation'),
       conversationHint: document.getElementById('conversationHint'),
+      conversationPfp: document.getElementById('conversationPfp'),
       trainingProfile: document.getElementById('trainingProfile'),
       voiceStatus: document.getElementById('voiceStatus'),
       opsOut: document.getElementById('opsOut'),
@@ -743,8 +744,20 @@ class AssistantDevUi {
       this.el.btnConversation.classList.toggle('speaking', normalized === 'speaking');
     }
 
+    if (this.el.avatarBtn) {
+      this.el.avatarBtn.classList.remove('idle', 'listening', 'speaking');
+      const nextState = this.state.conversationActive ? normalized : 'idle';
+      this.el.avatarBtn.classList.add(nextState === 'error' ? 'idle' : nextState);
+    }
+
     if (this.el.chatView) {
       this.el.chatView.classList.toggle('conversation-active', this.state.conversationActive === true);
+    }
+
+    if (this.el.conversationPfp) {
+      this.el.conversationPfp.classList.remove('idle', 'listening', 'speaking');
+      const nextState = this.state.conversationActive ? normalized : 'idle';
+      this.el.conversationPfp.classList.add(nextState === 'error' ? 'idle' : nextState);
     }
 
     if (this.el.conversationHint) {
@@ -897,6 +910,10 @@ class AssistantDevUi {
 
     if (this.el.avatarPreviewImage) {
       this.el.avatarPreviewImage.src = imageUrl;
+    }
+
+    if (this.el.conversationPfp) {
+      this.el.conversationPfp.src = imageUrl;
     }
 
     if (this.el.avatarBtn) {

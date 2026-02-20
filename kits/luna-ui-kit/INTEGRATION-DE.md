@@ -25,7 +25,30 @@ Einmal integrieren und in **allen Projekten gleich** nutzen (Vue/React/HTML), oh
 - `GET/POST /assistant/voice/settings`
 - `GET /assistant/voice/providers`
 - `GET /assistant/avatars/catalog`
+- `GET /assistant/luna/presets`
+- `POST /assistant/luna/presets/apply`
 - `POST /assistant/web-search/preview` (optional fürs UI-Badge)
+
+## Luna Presets im Beispiel setzen (Tsundere + Uncensored expliziter)
+
+Empfohlene Preset-IDs:
+
+- normal: `luna-tsundere`
+- uncensored: `luna-uncensored-explicit`
+
+Direkt per API anwenden:
+
+```bash
+curl -X POST http://127.0.0.1:5050/assistant/luna/presets/apply \
+   -H "Content-Type: application/json" \
+   -d '{"characterId":"luna","presetId":"luna-tsundere","mode":"normal"}'
+
+curl -X POST http://127.0.0.1:5050/assistant/luna/presets/apply \
+   -H "Content-Type: application/json" \
+   -d '{"characterId":"luna","presetId":"luna-uncensored-explicit","mode":"uncensored"}'
+```
+
+Im Vue-Beispiel (`examples/vue-snippet.vue`) ist dieses Umschalten bereits eingebaut: bei Mode-Wechsel wird automatisch das passende Preset angewendet.
 
 ## Internetzugriff (Luna Web) als Standard
 

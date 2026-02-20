@@ -62,6 +62,17 @@ export function createLunaApiClient({ baseUrl = '/assistant' } = {}) {
       return request('/avatars/catalog');
     },
 
+    lunaPresets() {
+      return request('/luna/presets');
+    },
+
+    applyLunaPreset(payload = {}) {
+      return request('/luna/presets/apply', {
+        method: 'POST',
+        body: payload,
+      });
+    },
+
     webSearchPreview({ characterId = 'luna', message = '' } = {}) {
       return request('/web-search/preview', {
         method: 'POST',

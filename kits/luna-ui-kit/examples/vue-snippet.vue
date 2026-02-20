@@ -26,8 +26,8 @@
       </div>
 
       <div class="luna-chat__body">
-        <div class="luna-chat__conversation-avatar">
-          <img class="luna-chat__avatar" style="width:100%;height:100%;" :src="avatarUrl" alt="Luna Gespräch" />
+        <div :class="['luna-chat__conversation-avatar', voiceState]">
+          <img class="luna-chat__conversation-pfp" :src="avatarUrl" alt="Luna Gespräch" />
         </div>
         <div class="luna-chat__hint">{{ conversationMode ? 'Gespräch aktiv' : 'Avatar + Sprache nur im Gesprächsmodus' }}</div>
 
@@ -67,6 +67,8 @@ import { computed, onMounted, ref, watch } from 'vue';
 
 const PANEL_PREFS_KEY = 'assistantPanelPrefs';
 const PANEL_MESSAGES_KEY = 'assistantMessagesByCharacter';
+const PRESET_NORMAL_ID = 'luna-tsundere';
+const PRESET_UNCENSORED_ID = 'luna-uncensored-explicit';
 
 const open = ref(true);
 const settingsOpen = ref(false);
@@ -159,6 +161,7 @@ function toggleConversation() {
 function toggleMode() {
   mode.value = mode.value === 'uncensored' ? 'normal' : 'uncensored';
   pushMessage('assistant', mode.value === 'uncensored' ? 'Uncensored Mode aktiv.' : 'Zurück im Normalmodus.');
+  applyPresetForMode(mode.value);
 }
 
 function selectCharacter(nextCharacterId) {
@@ -172,6 +175,11 @@ async function send() {
   input.value = '';
   pushMessage('user', userMessage);
 
+  if (conversationMode.value) {
+    voiceState.value = 'speaking';
+    voiceLabel.value = '🔊 Luna spricht ...';
+  }
+
   try {
     const res = await fetch('/assistant/chat', {
       method: 'POST',
@@ -181,9 +189,15 @@ async function send() {
     const out = await res.json();
     pushMessage('assistant', out?.reply || '(leer)');
     llmEnabled.value = out?.llmEnabled !== false;
+    if (conversationMode.value) {
+      voiceState.value = 'listening';
+      voiceLabel.value = '🎙️ Gespräch aktiv';
+    }
   } catch {
     pushMessage('assistant', '⚠️ API nicht erreichbar.');
     llmEnabled.value = false;
+    voiceState.value = 'idle';
+    voiceLabel.value = '🎙️ Voice bereit';
   }
 }
 
@@ -196,6 +210,19 @@ function startVoice() {
   voiceLabel.value = '🎤 Höre zu... (STT-Provider hier anschließen)';
 }
 
+async function applyPresetForMode(targetMode = 'normal') {
+  const presetId = targetMode === 'uncensored' ? PRESET_UNCENSORED_ID : PRESET_NORMAL_ID;
+  try {
+    await fetch('/assistant/luna/presets/apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ characterId: characterId.value, presetId, mode: targetMode }),
+    });
+  } catch {
+    // preset endpoint optional in consumer projects
+  }
+}
+
 watch([open, mode, characterId], () => {
   savePanelPrefs();
 });
@@ -203,6 +230,7 @@ watch([open, mode, characterId], () => {
 onMounted(() => {
   loadPanelPrefs();
   loadMessagesStore();
+  applyPresetForMode(mode.value);
   if (!messages.value.length) {
     pushMessage('assistant', 'Hey cutie ✨ Was ist dein Fokus für jetzt?');
   }
