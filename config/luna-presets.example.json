@@ -1,0 +1,29 @@
+{
+  "meta": {
+    "version": 1,
+    "description": "Example preset mapping for consumer projects (normal + uncensored with password lock)."
+  },
+  "security": {
+    "uncensoredRequiresPassword": true,
+    "uncensoredPasswordEnv": "ASSISTANT_UNCENSORED_PASSWORD"
+  },
+  "characterId": "luna",
+  "modes": {
+    "normal": {
+      "presetId": "luna-tsundere",
+      "note": "Playful tsundere in normal mode"
+    },
+    "uncensored": {
+      "presetId": "luna-uncensored-explicit",
+      "note": "More explicit style in uncensored mode"
+    }
+  },
+  "apiFlow": {
+    "setModeEndpoint": "/assistant/mode",
+    "applyPresetEndpoint": "/assistant/luna/presets/apply",
+    "order": [
+      "1) switch mode (password if uncensored)",
+      "2) apply matching preset for active mode"
+    ]
+  }
+}

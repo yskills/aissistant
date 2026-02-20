@@ -11,6 +11,7 @@
     "scripts",
     "config/eval",
     "config/assistant-mode-config.example.json",
+    "config/luna-presets.example.json",
     "README.md",
     "TRAINING-GUIDE-DE.md",
     "SETUP-OTHER-PROJECTS-DE.md",

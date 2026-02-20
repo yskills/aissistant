@@ -79,6 +79,14 @@ Typische Runtime-Calls:
 - `POST /assistant/mode-extras` (zusätzliche uncensored instructions/memories)
 - `POST /assistant/voice/settings` (Voice/PFP/Provider)
 
+Empfohlene Preset-Config im Consumer-Projekt:
+
+- `config/luna-presets.local.json` (aus `config/luna-presets.example.json` ableiten)
+- enthält Mapping:
+   - `normal` -> `luna-tsundere`
+   - `uncensored` -> `luna-uncensored-explicit`
+- dokumentiert den Uncensored Passwort-Lock über `ASSISTANT_UNCENSORED_PASSWORD`
+
 ## Internetzugriff (Luna Web) als Standard
 
 Im Core bereits vorhanden, aber per ENV steuerbar.

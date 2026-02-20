@@ -74,5 +74,7 @@ npm run train:luna
 - Training hier im Projekt: `TRAINING-GUIDE-DE.md`
 - Voice hier im Projekt: `VOICE-GUIDE-DE.md`
 - Setup in anderen Projekten: `SETUP-OTHER-PROJECTS-DE.md`
+- Zielarchitektur (3 Repos): `ARCHITECTURE-3-REPOS-DE.md`
+- Preset-Template für Consumer: `config/luna-presets.example.json`
 - WSL2-Ressourcen-Vorlage: `.wslconfig.example`
 - Release-Workflow: `RELEASE-GUIDE-DE.md`

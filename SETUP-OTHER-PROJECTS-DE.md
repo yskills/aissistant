@@ -2,6 +2,31 @@
 
 So bindest du `@luna/assistant-core` in ein externes Projekt ein und nutzt denselben Adapter-Training-Stack wie hier.
 
+## 0) 5-Minuten Setup (Copy/Paste)
+
+```bash
+npm install express better-sqlite3 ollama
+npm install github:yskills/aissistant#v0.1.7
+mkdir -p config
+cp node_modules/@luna/assistant-core/config/assistant-mode-config.example.json config/assistant-mode-config.local.json
+cp node_modules/@luna/assistant-core/config/luna-presets.example.json config/luna-presets.local.json
+```
+
+Dann in `.env`:
+
+```env
+ASSISTANT_MODE_CONFIG_FILE=./config/assistant-mode-config.local.json
+LLM_PROVIDER=ollama
+LLM_MODEL=luna:latest
+ASSISTANT_FORCE_CHARACTER_ID=luna
+ASSISTANT_UNCENSORED_PASSWORD=change-this-now
+```
+
+Preset-Flow (normal + uncensored) aus `config/luna-presets.local.json`:
+
+1. `POST /assistant/mode`
+2. `POST /assistant/luna/presets/apply`
+
 ## 1) Installation
 
 ```bash
@@ -42,6 +67,7 @@ ASSISTANT_MEMORY_FILE=./data/assistant-memory.sqlite
 LLM_PROVIDER=ollama
 LLM_MODEL=luna:latest
 ASSISTANT_FORCE_CHARACTER_ID=luna
+ASSISTANT_UNCENSORED_PASSWORD=change-this-now
 
 ASSISTANT_LORA_ENABLED=true
 ASSISTANT_LORA_API_BASE_URL=http://127.0.0.1:6060
@@ -115,6 +141,13 @@ Primär in:
 	- `characterBlueprint` (speechStyle, emotionalRules)
 	- `characterProfiles.luna.tones`
 	- `characterProfiles.luna.definition.assistantProfile`
+
+Preset-Mapping für App-Logik (empfohlen):
+
+- `config/luna-presets.local.json` (aus `config/luna-presets.example.json` kopieren)
+	- mappt `normal` -> `luna-tsundere`
+	- mappt `uncensored` -> `luna-uncensored-explicit`
+	- dokumentiert Passwort-Lock für uncensored Mode
 
 Schneller Test per API-Preset:
 
