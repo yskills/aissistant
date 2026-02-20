@@ -4,34 +4,16 @@
     {
       "type": "node",
       "request": "launch",
-      "name": "Luna Dev UI (F5 + Chrome)",
-      "program": "${workspaceFolder}/src/devServer.js",
-      "cwd": "${workspaceFolder}",
-      "envFile": "${workspaceFolder}/.env",
-      "env": {
-        "PORT": "5050"
-      },
-      "console": "integratedTerminal",
-      "serverReadyAction": {
-        "action": "debugWithChrome",
-        "pattern": "Assistant Dev UI läuft auf (https?://\\S+)",
-        "uriFormat": "%s",
-        "webRoot": "${workspaceFolder}/web"
-      }
-    },
-    {
-      "type": "node",
-      "request": "launch",
-      "name": "Luna Dev UI (+ Trainer Ensure)",
+      "name": "Luna Dev UI (F5 Auto Start/Stop)",
       "preLaunchTask": "Lora Trainer Ensure Up",
-      "postDebugTask": "Lora Trainer Down",
+      "postDebugTask": "Shutdown Dev Stack",
       "program": "${workspaceFolder}/src/devServer.js",
       "cwd": "${workspaceFolder}",
       "envFile": "${workspaceFolder}/.env",
       "env": {
         "PORT": "5050"
       },
-      "console": "integratedTerminal",
+      "console": "internalConsole",
       "serverReadyAction": {
         "action": "debugWithChrome",
         "pattern": "Assistant Dev UI läuft auf (https?://\\S+)",

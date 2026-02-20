@@ -14,6 +14,25 @@
       "command": "npm",
       "args": ["run", "lora:trainer:down"],
       "problemMatcher": []
+    },
+    {
+      "label": "Kill Backend Dev Ports",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "$ports = 5050,5051; foreach ($p in $ports) { $conns = Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue; foreach ($conn in $conns) { Stop-Process -Id $conn.OwningProcess -Force -ErrorAction SilentlyContinue } }"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Shutdown Dev Stack",
+      "dependsOn": ["Lora Trainer Down", "Kill Backend Dev Ports"],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
     }
   ]
 }
