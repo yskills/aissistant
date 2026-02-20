@@ -39,10 +39,13 @@ app.use('/assistant', router);
 ASSISTANT_BASE_DIR=.
 ASSISTANT_MODE_CONFIG_FILE=./config/assistant-mode-config.local.json
 ASSISTANT_MEMORY_FILE=./data/assistant-memory.sqlite
+LLM_PROVIDER=ollama
+LLM_MODEL=luna:latest
+ASSISTANT_FORCE_CHARACTER_ID=luna
 
 ASSISTANT_LORA_ENABLED=true
 ASSISTANT_LORA_API_BASE_URL=http://127.0.0.1:6060
-ASSISTANT_LORA_BASE_MODEL=Qwen/Qwen2.5-0.5B-Instruct
+ASSISTANT_LORA_BASE_MODEL=meta-llama/Meta-Llama-3.1-8B-Instruct
 ASSISTANT_LORA_ADAPTER_NAME=luna-adapter
 ASSISTANT_LORA_ADAPTER_STRATEGY=versioned
 ASSISTANT_LORA_AUTO_PROMOTE=true
@@ -54,6 +57,9 @@ ASSISTANT_LORA_AUTO_PROMOTE=true
 - `GET /assistant/training/lora/status?jobId=...`
 - `GET /assistant/training/status?minCurated=...`
 - `GET /assistant/training/lora/provider-health`
+- `GET /assistant/luna/presets`
+- `POST /assistant/luna/presets/apply`
+- `POST /assistant/luna/ingest` (Lernen aus externen Endpoints/Events)
 
 ## 5) Empfohlenes Projekt-Setup
 
@@ -74,3 +80,46 @@ ASSISTANT_LORA_AUTO_PROMOTE=true
 - Assistant-Core als eigenständiges API-Modul im Consumer halten (`/assistant` Router)
 - LoRA-Trainer als separates Service-Deployment anbinden (`ASSISTANT_LORA_API_BASE_URL`)
 - CI im Consumer ebenfalls auf `npm test` + API-Contract-Checks setzen
+
+## 8) Luna-UI-Assets weitergeben (HTML/Vue/React)
+
+Ja, dafür ist der Ordner `kits/luna-ui-kit` gedacht.
+
+Enthalten:
+
+- `assets/luna-profile.svg` (Avatar/Profilbild)
+- `assets/luna-icon.svg` (Icon)
+- `luna-chat.css` (framework-agnostisches Basis-Styling)
+- `luna-chat-contract.json` (klare API-Zuordnung: Chat/Voice/Model/Avatar)
+- `examples/html-snippet.html`
+- `examples/vue-snippet.vue`
+
+Empfohlene Verteilung:
+
+1. Schnellstart: Ordner in Zielprojekt kopieren.
+2. Team-Setup: eigenen `luna-ui-kit`-Repo-Ordner versionieren.
+3. Multi-Projekt-Setup: als npm-Paket veröffentlichen.
+
+Wichtig für Konsistenz:
+
+- Avatar nur im Gesprächsmodus anzeigen.
+- Sprache nur im Gesprächsmodus aktivieren.
+- Modellbindung im Backend über ENV (`LLM_MODEL=luna:latest`) zentral halten.
+
+## 9) Wo du Lunas Art/Charakter definierst
+
+Primär in:
+
+- `config/assistant-mode-config.local.json`
+	- `assistantProfile` (vibe, appearance, traits)
+	- `characterBlueprint` (speechStyle, emotionalRules)
+	- `characterProfiles.luna.tones`
+	- `characterProfiles.luna.definition.assistantProfile`
+
+Schneller Test per API-Preset:
+
+```bash
+curl -X POST http://127.0.0.1:5050/assistant/luna/presets/apply \
+	-H "Content-Type: application/json" \
+	-d '{"presetId":"luna-cute-egirl"}'
+```

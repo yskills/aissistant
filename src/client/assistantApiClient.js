@@ -132,6 +132,30 @@ export function createAssistantApiClient({
       return request('/characters');
     },
 
+    getVoiceConfig(characterId = 'luna') {
+      return request(`/voice/config${buildQuery({ characterId })}`);
+    },
+
+    getVoiceSettings(characterId = 'luna') {
+      return request(`/voice/settings${buildQuery({ characterId })}`);
+    },
+
+    setVoiceSettings(payload = {}) {
+      return request('/voice/settings', { method: 'POST', body: payload || {} });
+    },
+
+    getLunaPresets() {
+      return request('/luna/presets');
+    },
+
+    applyLunaPreset(payload = {}) {
+      return request('/luna/presets/apply', { method: 'POST', body: payload || {} });
+    },
+
+    ingestLunaSignal(payload = {}) {
+      return request('/luna/ingest', { method: 'POST', body: payload || {} });
+    },
+
     trainPrepare() {
       return request('/training/prepare', { method: 'POST', body: {} });
     },
@@ -152,12 +176,20 @@ export function createAssistantApiClient({
       return request('/training/lora/provider-health');
     },
 
+    trainLoraProfiles() {
+      return request('/training/lora/profiles');
+    },
+
     trainLoraEnsureTrainer(payload = {}) {
       return request('/training/lora/trainer/ensure', { method: 'POST', body: payload || {} });
     },
 
     trainLoraStart(payload = {}) {
       return request('/training/lora/start', { method: 'POST', body: payload || {} });
+    },
+
+    trainLoraStartSmart(payload = {}) {
+      return request('/training/lora/start-smart', { method: 'POST', body: payload || {} });
     },
 
     trainLoraStatus(jobId = '') {

@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Luna avatar">
+  <defs>
+    <radialGradient id="bg" cx="35%" cy="25%" r="80%">
+      <stop offset="0%" stop-color="#fde8ff"/>
+      <stop offset="55%" stop-color="#f3b3ff"/>
+      <stop offset="100%" stop-color="#b794f4"/>
+    </radialGradient>
+    <linearGradient id="hair" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#2563eb"/>
+    </linearGradient>
+  </defs>
+  <circle cx="256" cy="256" r="240" fill="url(#bg)"/>
+  <path d="M100 230c0-95 70-165 156-165s156 70 156 165v70c0 62-50 112-112 112H212c-62 0-112-50-112-112z" fill="url(#hair)"/>
+  <ellipse cx="256" cy="287" rx="118" ry="126" fill="#ffe4f2"/>
+  <ellipse cx="208" cy="276" rx="20" ry="24" fill="#1f2937"/>
+  <ellipse cx="304" cy="276" rx="20" ry="24" fill="#1f2937"/>
+  <ellipse cx="208" cy="271" rx="6" ry="7" fill="#ffffff"/>
+  <ellipse cx="304" cy="271" rx="6" ry="7" fill="#ffffff"/>
+  <path d="M222 335c14 14 54 14 68 0" fill="none" stroke="#be185d" stroke-width="12" stroke-linecap="round"/>
+  <circle cx="175" cy="319" r="18" fill="#f9a8d4" opacity="0.55"/>
+  <circle cx="337" cy="319" r="18" fill="#f9a8d4" opacity="0.55"/>
+  <path d="M165 170c18-32 48-51 91-58" fill="none" stroke="#6d28d9" stroke-width="20" stroke-linecap="round"/>
+  <path d="M347 170c-18-32-48-51-91-58" fill="none" stroke="#6d28d9" stroke-width="20" stroke-linecap="round"/>
+</svg>

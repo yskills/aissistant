@@ -1,18 +1,230 @@
+class VoiceInterface {
+  constructor({ onStatus = null, onError = null } = {}) {
+    this.onStatus = typeof onStatus === 'function' ? onStatus : () => {};
+    this.onError = typeof onError === 'function' ? onError : () => {};
+    this.synth = window.speechSynthesis || null;
+    this.SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+    this.recognition = null;
+    this.voices = [];
+    this.speakingSessionId = 0;
+  }
+
+  supportsTts() {
+    return !!this.synth;
+  }
+
+  supportsStt() {
+    return !!this.SpeechRecognition;
+  }
+
+  async loadVoices() {
+    if (!this.supportsTts()) return [];
+
+    const loadNow = () => {
+      const list = this.synth.getVoices() || [];
+      this.voices = Array.isArray(list) ? list.slice() : [];
+      return this.voices;
+    };
+
+    const initial = loadNow();
+    if (initial.length > 0) return initial;
+
+    await new Promise((resolve) => {
+      const timeout = window.setTimeout(resolve, 1200);
+      if ('onvoiceschanged' in this.synth) {
+        this.synth.onvoiceschanged = () => {
+          window.clearTimeout(timeout);
+          loadNow();
+          resolve();
+        };
+      }
+    });
+
+    return loadNow();
+  }
+
+  resolveVoice(settings = {}) {
+    if (!this.supportsTts()) return null;
+    const voiceName = String(settings.voiceName || '').trim();
+    const lang = String(settings.lang || 'de-DE').trim().toLowerCase();
+
+    if (voiceName) {
+      const exact = this.voices.find((voice) => String(voice?.name || '') === voiceName);
+      if (exact) return exact;
+    }
+
+    const langMatches = this.voices.filter((voice) => String(voice?.lang || '').toLowerCase().startsWith(lang.slice(0, 2)));
+    if (langMatches.length > 0) {
+      const preferred = langMatches.find((voice) => /(katja|helena|anna|vicki|zira|female|girl|amelie)/i.test(String(voice?.name || '')));
+      return preferred || langMatches[0];
+    }
+
+    return this.voices[0] || null;
+  }
+
+  speak(text = '', settings = {}) {
+    if (!this.supportsTts()) {
+      this.onError({ state: 'error', text: 'TTS wird in diesem Browser nicht unterstützt.' });
+      return;
+    }
+
+    const content = String(text || '').trim();
+    if (!content) return;
+
+    const chunks = this.splitSpeechText(content);
+    const currentSession = Date.now();
+    this.speakingSessionId = currentSession;
+    this.synth.cancel();
+    this.onStatus({ state: 'speaking', text: '🔊 Luna spricht ...' });
+
+    const speakNext = (index) => {
+      if (this.speakingSessionId !== currentSession) return;
+      if (index >= chunks.length) {
+        this.onStatus({ state: 'idle', text: '🔊 Luna fertig.' });
+        return;
+      }
+
+      const utterance = new SpeechSynthesisUtterance(chunks[index]);
+      utterance.lang = String(settings.lang || 'de-DE');
+      utterance.rate = Number(settings.rate || 1.0);
+      utterance.pitch = Number(settings.pitch || 1.15);
+      utterance.volume = Number(settings.volume || 1.0);
+      utterance.voice = this.resolveVoice(settings);
+      utterance.onend = () => speakNext(index + 1);
+      utterance.onerror = () => this.onError({ state: 'error', text: 'Voice-Ausgabe fehlgeschlagen.' });
+      this.synth.speak(utterance);
+    };
+
+    speakNext(0);
+  }
+
+  splitSpeechText(text = '') {
+    const maxChunkLength = 220;
+    const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!normalized) return [];
+    const sentenceChunks = normalized.match(/[^.!?]+[.!?]?/g) || [normalized];
+    const out = [];
+    sentenceChunks.forEach((sentence) => {
+      const part = String(sentence || '').trim();
+      if (!part) return;
+      if (part.length <= maxChunkLength) {
+        out.push(part);
+        return;
+      }
+      let buffer = part;
+      while (buffer.length > maxChunkLength) {
+        out.push(buffer.slice(0, maxChunkLength));
+        buffer = buffer.slice(maxChunkLength).trim();
+      }
+      if (buffer) out.push(buffer);
+    });
+    return out;
+  }
+
+  stopSpeaking() {
+    if (!this.supportsTts()) return;
+    this.speakingSessionId = Date.now();
+    this.synth.cancel();
+    this.onStatus({ state: 'idle', text: '⏹ Voice gestoppt.' });
+  }
+
+  stopListening() {
+    if (!this.recognition) return;
+    try {
+      this.recognition.stop();
+    } catch {
+      // no-op
+    }
+  }
+
+  startListening({ lang = 'de-DE', onTranscript, onPartial } = {}) {
+    if (!this.supportsStt()) {
+      this.onError({ state: 'error', text: 'Speech-to-Text wird in diesem Browser nicht unterstützt.' });
+      return;
+    }
+
+    this.stopListening();
+    this.recognition = new this.SpeechRecognition();
+    this.recognition.continuous = false;
+    this.recognition.interimResults = true;
+    this.recognition.maxAlternatives = 1;
+    this.recognition.lang = String(lang || 'de-DE');
+
+    this.recognition.onstart = () => this.onStatus({ state: 'listening', text: '🎤 Höre zu ...' });
+    this.recognition.onresult = (event) => {
+      let finalText = '';
+      let interimText = '';
+
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const result = event.results[i];
+        const snippet = String(result?.[0]?.transcript || '').trim();
+        if (!snippet) continue;
+        if (result.isFinal) {
+          finalText += `${snippet} `;
+        } else {
+          interimText += `${snippet} `;
+        }
+      }
+
+      const partial = interimText.trim();
+      if (typeof onPartial === 'function') {
+        onPartial(partial);
+      }
+
+      const finalTranscript = finalText.trim();
+      if (typeof onTranscript === 'function' && finalTranscript) {
+        onTranscript(finalTranscript);
+      }
+    };
+    this.recognition.onerror = (event) => {
+      this.onError({ state: 'error', text: `Speech-Fehler: ${event?.error || 'unknown'}` });
+    };
+    this.recognition.onend = () => this.onStatus({ state: 'idle', text: '🎤 Aufnahme beendet.' });
+
+    this.recognition.start();
+  }
+}
+
 class AssistantDevUi {
   constructor({ apiBase = '/assistant' } = {}) {
     this.apiBase = apiBase;
     this.state = {
-      open: true,
+      open: false,
       settingsOpen: false,
       mode: 'normal',
       userId: 'luna',
       messages: [],
+      messagesByCharacter: {},
       loading: false,
       llmEnabled: null,
       lastAssistantText: '',
       lastUserText: '',
       selectedCharacter: 'luna',
       characters: [],
+      conversationActive: false,
+      awaitingConversationResume: false,
+      liveTranscript: '',
+      lastInputWasVoice: false,
+      voice: {
+        preset: 'egirl-cute',
+        voiceName: '',
+        lang: 'de-DE',
+        rate: 1.03,
+        pitch: 1.35,
+        volume: 1.0,
+        autoSpeak: false,
+        autoLearn: true,
+        ttsProvider: 'web-speech',
+        sttProvider: 'web-speech',
+        avatarProfileImage: 'https://api.dicebear.com/9.x/lorelei/svg?seed=luna-cute-egirl',
+        speakOnlyInConversation: true,
+        presets: [],
+      },
+      voiceProviders: {
+        tts: [],
+        stt: [],
+      },
+      avatarCatalog: [],
     };
 
     this.palette = {
@@ -22,7 +234,16 @@ class AssistantDevUi {
       support: 'linear-gradient(135deg,#10b981,#34d399)',
     };
 
+    this.voice = new VoiceInterface({
+      onStatus: (event) => this.handleVoiceEvent(event, false),
+      onError: (event) => this.handleVoiceEvent(event, true),
+    });
+
     this.el = this.getElements();
+    this.storage = {
+      panelPrefs: 'assistant.panel.prefs',
+      messagesByCharacter: 'assistant.messages.byCharacter',
+    };
   }
 
   getElements() {
@@ -45,12 +266,16 @@ class AssistantDevUi {
       serverSpinner: document.getElementById('serverSpinner'),
       gpuSpinner: document.getElementById('gpuSpinner'),
       charName: document.getElementById('charName'),
+      charNameBtn: document.getElementById('charNameBtn'),
       avatarBtn: document.getElementById('avatarBtn'),
       settingsToggle: document.getElementById('settingsToggle'),
       closeBtn: document.getElementById('closeBtn'),
       overlay: document.getElementById('overlay'),
+      avatarOverlay: document.getElementById('avatarOverlay'),
+      avatarPreviewImage: document.getElementById('avatarPreviewImage'),
       charGrid: document.getElementById('charGrid'),
       closeOverlay: document.getElementById('closeOverlay'),
+      closeAvatarOverlay: document.getElementById('closeAvatarOverlay'),
       btnTrainPrepare: document.getElementById('btnTrainPrepare'),
       btnTrainAuto: document.getElementById('btnTrainAuto'),
       btnReset: document.getElementById('btnReset'),
@@ -61,6 +286,23 @@ class AssistantDevUi {
       minCurated: document.getElementById('minCurated'),
       btnExampleAdapter: document.getElementById('btnExampleAdapter'),
       btnEnsureTrainer: document.getElementById('btnEnsureTrainer'),
+      voicePreset: document.getElementById('voicePreset'),
+      voiceDevice: document.getElementById('voiceDevice'),
+      voiceRate: document.getElementById('voiceRate'),
+      voicePitch: document.getElementById('voicePitch'),
+      voiceAutoSpeak: document.getElementById('voiceAutoSpeak'),
+      voiceAutoLearn: document.getElementById('voiceAutoLearn'),
+      voiceTtsProvider: document.getElementById('voiceTtsProvider'),
+      voiceSttProvider: document.getElementById('voiceSttProvider'),
+      voiceAvatarUrl: document.getElementById('voiceAvatarUrl'),
+      btnVoiceListen: document.getElementById('btnVoiceListen'),
+      btnVoiceSpeak: document.getElementById('btnVoiceSpeak'),
+      btnVoiceStop: document.getElementById('btnVoiceStop'),
+      btnVoiceSave: document.getElementById('btnVoiceSave'),
+      btnConversation: document.getElementById('btnConversation'),
+      conversationHint: document.getElementById('conversationHint'),
+      trainingProfile: document.getElementById('trainingProfile'),
+      voiceStatus: document.getElementById('voiceStatus'),
       opsOut: document.getElementById('opsOut'),
       adapterPathOut: document.getElementById('adapterPathOut'),
       adapterHintOut: document.getElementById('adapterHintOut'),
@@ -68,116 +310,7 @@ class AssistantDevUi {
       ovUnc: document.getElementById('ovUnc'),
       ovMem: document.getElementById('ovMem'),
       ovMode: document.getElementById('ovMode'),
-      apiEndpoint: document.getElementById('apiEndpoint'),
-      apiMethod: document.getElementById('apiMethod'),
-      apiPayload: document.getElementById('apiPayload'),
-      btnRunApi: document.getElementById('btnRunApi'),
     };
-  }
-
-  getApiCatalog() {
-    const cid = encodeURIComponent(this.state.selectedCharacter || 'luna');
-    return [
-      { path: `/brief?characterId=${cid}`, method: 'GET' },
-      { path: `/settings?characterId=${cid}`, method: 'GET' },
-      { path: '/settings', method: 'POST', body: { characterId: this.state.selectedCharacter, llmEnabled: true } },
-      { path: '/mode', method: 'POST', body: { characterId: this.state.selectedCharacter, mode: 'normal' } },
-      { path: `/mode?characterId=${cid}`, method: 'GET' },
-      { path: `/mode-extras?characterId=${cid}`, method: 'GET' },
-      { path: '/mode-extras', method: 'POST', body: { characterId: this.state.selectedCharacter, instructions: [], memories: [] } },
-      { path: '/web-search/preview', method: 'POST', body: { characterId: this.state.selectedCharacter, message: 'Marktupdate heute' } },
-      { path: '/feedback', method: 'POST', body: { characterId: this.state.selectedCharacter, mode: this.state.mode, value: 'up', userMessage: 'hi', assistantMessage: 'hello' } },
-      { path: '/training/example', method: 'POST', body: { characterId: this.state.selectedCharacter, mode: this.state.mode, source: 'api-explorer', accepted: true, user: 'hi', assistant: 'hello' } },
-      { path: '/training/prepare', method: 'POST', body: {} },
-      { path: '/training/auto', method: 'POST', body: { minCurated: Number(this.el.minCurated.value || 20) } },
-      { path: `/training/status?minCurated=${encodeURIComponent(this.el.minCurated.value || 20)}`, method: 'GET' },
-      { path: '/training/lora/config', method: 'GET' },
-      { path: '/training/lora/provider-health', method: 'GET' },
-      { path: '/training/lora/trainer/ensure', method: 'POST', body: { ensureTrainer: true } },
-      { path: '/training/lora/start', method: 'POST', body: { datasetTier: 'curated', minCurated: 1, dryRun: false, skipEval: true, skipExport: false } },
-      { path: '/training/lora/example-adapter', method: 'POST', body: { characterId: this.state.selectedCharacter, mode: this.state.mode, userMessage: 'hi', assistantMessage: 'hello' } },
-      { path: '/training/lora/status', method: 'GET' },
-      { path: '/training/lora/quick-start', method: 'POST', body: { characterId: this.state.selectedCharacter, mode: this.state.mode, userMessage: 'hi', assistantMessage: 'hello' } },
-      { path: '/memory/delete-recent', method: 'POST', body: { characterId: this.state.selectedCharacter, mode: this.state.mode, days: 7 } },
-      { path: '/profile', method: 'POST', body: { characterId: this.state.selectedCharacter, preferredName: 'User' } },
-      { path: '/characters', method: 'GET' },
-      { path: '/reset', method: 'POST', body: { characterId: this.state.selectedCharacter } },
-    ];
-  }
-
-  inferMethodForEndpoint(pathValue = '') {
-    const normalized = String(pathValue || '').trim();
-    const match = this.getApiCatalog().find((entry) => entry.path === normalized);
-    if (match) return match.method;
-
-    const noQuery = normalized.split('?')[0];
-    if (/^\/training\/lora\/status$/i.test(noQuery)) return 'GET';
-    if (/^\/training\/status$/i.test(noQuery)) return 'GET';
-    if (/^\/mode$/i.test(noQuery) || /^\/settings$/i.test(noQuery)) return 'POST';
-    if (/^\/characters$/i.test(noQuery) || /^\/brief$/i.test(noQuery)) return 'GET';
-    if (/^\/.*\/.*$/i.test(noQuery) && /^(\/training|\/memory|\/profile|\/reset|\/feedback|\/chat)/i.test(noQuery)) return 'POST';
-    return 'GET';
-  }
-
-  updateApiMethodHint() {
-    if (!this.el.apiEndpoint || !this.el.apiMethod) return;
-    const method = this.inferMethodForEndpoint(this.el.apiEndpoint.value);
-    this.el.apiMethod.textContent = method;
-  }
-
-  prefillApiPayloadForCurrentEndpoint() {
-    if (!this.el.apiEndpoint || !this.el.apiPayload) return;
-    const endpoint = String(this.el.apiEndpoint.value || '').trim();
-    const match = this.getApiCatalog().find((entry) => entry.path === endpoint);
-    if (!match || !match.body) {
-      this.el.apiPayload.value = '';
-      return;
-    }
-    this.el.apiPayload.value = JSON.stringify(match.body, null, 2);
-  }
-
-  async runApiExplorer() {
-    if (!this.el.apiEndpoint) return;
-
-    const endpoint = String(this.el.apiEndpoint.value || '').trim();
-    if (!endpoint.startsWith('/')) {
-      this.showOps('Fehler: Endpoint muss mit / beginnen. Beispiel: /mode?characterId=luna');
-      return;
-    }
-
-    const method = this.inferMethodForEndpoint(endpoint);
-    let payload = null;
-
-    if (method !== 'GET') {
-      const raw = String(this.el.apiPayload?.value || '').trim();
-      if (raw) {
-        try {
-          payload = JSON.parse(raw);
-        } catch {
-          this.showOps('Fehler: Payload ist kein valides JSON.');
-          return;
-        }
-      } else {
-        payload = {};
-      }
-    }
-
-    try {
-      const out = await this.api(endpoint, method, payload);
-      this.showOps({
-        endpoint,
-        method,
-        payload,
-        response: out,
-      });
-
-      if (endpoint.startsWith('/mode') || endpoint.startsWith('/settings') || endpoint.startsWith('/training/status')) {
-        await this.refreshModeAndStatus();
-        await this.refreshTrainingStatus();
-      }
-    } catch (error) {
-      this.showOps({ endpoint, method, payload, error: error.message });
-    }
   }
 
   isoDate(value) {
@@ -224,10 +357,8 @@ class AssistantDevUi {
   }
 
   applyCharacterUi() {
-    const first = String(this.state.selectedCharacter || 'l').charAt(0).toUpperCase();
-    this.el.avatarBtn.textContent = first;
-    this.el.avatarBtn.style.background = this.palette[this.state.selectedCharacter] || this.palette.luna;
     this.el.charName.textContent = this.state.selectedCharacter;
+    this.applyAvatarProfileImage();
   }
 
   setStatus(text, cssClass = '') {
@@ -256,6 +387,7 @@ class AssistantDevUi {
     this.state.open = typeof force === 'boolean' ? force : !this.state.open;
     this.el.panel.classList.toggle('open', this.state.open);
     this.el.fab.textContent = this.state.open ? '×' : '✦';
+    this.savePanelPrefs();
   }
 
   toggleSettings(force = null) {
@@ -275,7 +407,85 @@ class AssistantDevUi {
       meta,
       feedback: null,
     });
+    this.saveCurrentCharacterMessages();
     this.renderMessages();
+  }
+
+  savePanelPrefs() {
+    try {
+      window.localStorage.setItem(this.storage.panelPrefs, JSON.stringify({
+        open: this.state.open,
+        selectedCharacter: this.state.selectedCharacter,
+      }));
+    } catch {
+      // ignore storage failures
+    }
+  }
+
+  loadPanelPrefs() {
+    try {
+      const raw = window.localStorage.getItem(this.storage.panelPrefs);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (typeof parsed?.open === 'boolean') {
+        this.state.open = parsed.open;
+      }
+      const storedCharacter = String(parsed?.selectedCharacter || '').trim().toLowerCase();
+      if (storedCharacter) {
+        this.state.selectedCharacter = storedCharacter;
+      }
+    } catch {
+      // ignore storage failures
+    }
+  }
+
+  loadMessagesStore() {
+    try {
+      const raw = window.localStorage.getItem(this.storage.messagesByCharacter);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        this.state.messagesByCharacter = parsed;
+      }
+    } catch {
+      this.state.messagesByCharacter = {};
+    }
+  }
+
+  persistMessagesStore() {
+    try {
+      window.localStorage.setItem(this.storage.messagesByCharacter, JSON.stringify(this.state.messagesByCharacter));
+    } catch {
+      // ignore storage failures
+    }
+  }
+
+  normalizeStoredMessage(message = {}) {
+    return {
+      id: String(message?.id || `m-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
+      role: message?.role === 'user' ? 'user' : 'assistant',
+      text: String(message?.text || ''),
+      at: String(message?.at || new Date().toISOString()),
+      meta: String(message?.meta || ''),
+      feedback: ['up', 'down'].includes(message?.feedback) ? message.feedback : null,
+    };
+  }
+
+  loadCurrentCharacterMessages() {
+    const source = this.state.messagesByCharacter?.[this.state.selectedCharacter];
+    if (!Array.isArray(source)) {
+      this.state.messages = [];
+      return;
+    }
+    this.state.messages = source.map((item) => this.normalizeStoredMessage(item));
+  }
+
+  saveCurrentCharacterMessages() {
+    this.state.messagesByCharacter = {
+      ...(this.state.messagesByCharacter || {}),
+      [this.state.selectedCharacter]: [...this.state.messages],
+    };
+    this.persistMessagesStore();
   }
 
   renderMessages() {
@@ -290,27 +500,32 @@ class AssistantDevUi {
       }
 
       const isUser = message.role === 'user';
-      const avatar = isUser ? 'YOU' : (this.state.selectedCharacter || 'L').slice(0, 2).toUpperCase();
-      const actions = isUser
-        ? `<div class="msg-actions"><button class="action-btn" data-act="retry" data-id="${message.id}">↻ retry</button></div>`
-        : `<div class="msg-actions">
-            <button class="action-btn ${message.feedback === 'up' ? 'active' : ''}" data-act="up" data-id="${message.id}">👍</button>
-            <button class="action-btn ${message.feedback === 'down' ? 'active' : ''}" data-act="down" data-id="${message.id}">👎</button>
-            <button class="action-btn" data-act="retry" data-id="${message.id}">↻</button>
-            <button class="action-btn" data-act="edit" data-id="${message.id}">✎</button>
-          </div>`;
+      const roleClass = isUser ? 'user' : 'assistant';
+      const roleLabel = isUser ? 'DU' : 'LUNA';
+      const first = isUser ? 'U' : 'L';
 
       list.push(`
-        <article class="message ${isUser ? 'user' : 'assistant'}" data-id="${message.id}" data-idx="${index}">
-          <div class="msg-avatar">${avatar}</div>
+        <article class="message ${roleClass}" data-id="${message.id}" data-idx="${index}">
+          <div class="msg-avatar">${first}</div>
           <div class="msg-stack">
             <div class="bubble">${this.escapeHtml(message.text)}</div>
-            <div class="meta">${this.escapeHtml(message.meta || '')}</div>
-            ${actions}
+            <div class="meta">${this.escapeHtml(roleLabel)} · ${new Date(message.at || Date.now()).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</div>
           </div>
         </article>
       `);
     });
+
+    if (this.state.liveTranscript) {
+      list.push(`
+        <article class="message user interim">
+          <div class="msg-avatar">U</div>
+          <div class="msg-stack">
+            <div class="bubble">${this.escapeHtml(this.state.liveTranscript)}</div>
+            <div class="meta">DU · live</div>
+          </div>
+        </article>
+      `);
+    }
 
     if (this.state.loading) {
       list.push('<div class="thinking">Luna denkt<span class="dots"></span></div>');
@@ -338,11 +553,11 @@ class AssistantDevUi {
       this.setStatus(this.state.llmEnabled ? 'Live LLM' : 'Fallback', this.state.llmEnabled ? 'live' : 'fallback');
 
       const overview = settings?.settings?.memoryOverview || {};
-      this.el.ovHist.textContent = Number(overview.historyCount || 0);
-      this.el.ovUnc.textContent = Number(overview.uncensoredHistoryCount || 0);
+      if (this.el.ovHist) this.el.ovHist.textContent = Number(overview.historyCount || 0);
+      if (this.el.ovUnc) this.el.ovUnc.textContent = Number(overview.uncensoredHistoryCount || 0);
       const memCount = Number(overview.goalsCount || 0) + Number(overview.notesCount || 0) + Number(overview.pinnedMemoriesCount || 0);
-      this.el.ovMem.textContent = memCount;
-      this.el.ovMode.textContent = settings?.settings?.mode || this.state.mode;
+      if (this.el.ovMem) this.el.ovMem.textContent = memCount;
+      if (this.el.ovMode) this.el.ovMode.textContent = settings?.settings?.mode || this.state.mode;
 
       await this.refreshInfraStatus();
     } catch (error) {
@@ -406,6 +621,9 @@ class AssistantDevUi {
     const message = this.el.chatInput.value.trim();
     if (!message || this.state.loading) return;
 
+    const inputWasVoice = this.state.lastInputWasVoice === true;
+    this.state.lastInputWasVoice = false;
+
     this.el.chatInput.value = '';
     this.autosizeInput();
     this.appendMessage('user', message, 'gesendet');
@@ -423,10 +641,28 @@ class AssistantDevUi {
       const reply = out.reply || '(leer)';
       this.state.lastAssistantText = reply;
       this.appendMessage('assistant', reply, 'neu ausgeführt');
+
+      if (this.el.voiceAutoSpeak?.checked === true && this.state.conversationActive === true) {
+        this.voice.speak(reply, this.getVoiceSettingsFromUi());
+      }
+
+      if (inputWasVoice && this.state.voice.autoLearn === true) {
+        await this.api('/training/example', 'POST', {
+          characterId: this.state.selectedCharacter,
+          mode: this.state.mode,
+          source: 'voice-conversation-auto',
+          accepted: true,
+          user: message,
+          assistant: reply,
+          userOriginal: message,
+          assistantOriginal: reply,
+        }).catch(() => {});
+      }
     } catch (error) {
       this.appendMessage('assistant', `Fehler: ${error.message}`, 'fehler');
     } finally {
       this.state.loading = false;
+      this.saveCurrentCharacterMessages();
       this.renderMessages();
     }
   }
@@ -460,7 +696,124 @@ class AssistantDevUi {
   }
 
   showOps(data) {
+    if (!this.el.opsOut) return;
     this.el.opsOut.textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+  }
+
+  handleVoiceEvent(eventPayload, isError = false) {
+    const isObject = eventPayload && typeof eventPayload === 'object';
+    const text = isObject
+      ? String(eventPayload.text || '').trim()
+      : String(eventPayload || '').trim();
+    const stateFromPayload = isObject ? String(eventPayload.state || '').trim().toLowerCase() : '';
+    const state = (stateFromPayload || (isError ? 'error' : 'idle'));
+
+    this.showOps(text || eventPayload);
+    this.setVoiceUiState(state, text || (isError ? 'Voice-Fehler.' : 'Voice bereit'));
+
+    if (
+      state === 'idle'
+      && this.state.conversationActive
+      && this.state.awaitingConversationResume
+      && !this.state.loading
+    ) {
+      this.state.awaitingConversationResume = false;
+      window.setTimeout(() => this.startConversationTurn(), 180);
+    }
+  }
+
+  setVoiceUiState(state = 'idle', text = '') {
+    const normalized = ['idle', 'listening', 'speaking', 'error'].includes(state) ? state : 'idle';
+    const label = String(text || '').trim() || '🎙️ Voice bereit';
+
+    if (this.el.voiceStatus) {
+      this.el.voiceStatus.textContent = label;
+      this.el.voiceStatus.classList.remove('idle', 'listening', 'speaking', 'error');
+      this.el.voiceStatus.classList.add(normalized);
+    }
+
+    if (this.el.btnVoiceListen) {
+      this.el.btnVoiceListen.classList.toggle('listening', normalized === 'listening');
+      this.el.btnVoiceListen.classList.toggle('speaking', normalized === 'speaking');
+    }
+
+    if (this.el.btnConversation) {
+      this.el.btnConversation.classList.toggle('active', this.state.conversationActive === true);
+      this.el.btnConversation.classList.toggle('listening', normalized === 'listening');
+      this.el.btnConversation.classList.toggle('speaking', normalized === 'speaking');
+    }
+
+    if (this.el.chatView) {
+      this.el.chatView.classList.toggle('conversation-active', this.state.conversationActive === true);
+    }
+
+    if (this.el.conversationHint) {
+      const hint = this.state.conversationActive
+        ? (normalized === 'speaking' ? 'Luna spricht…' : normalized === 'listening' ? 'Luna hört zu…' : 'Gespräch aktiv')
+        : 'Gesprächsmodus starten';
+      this.el.conversationHint.textContent = hint;
+    }
+  }
+
+  canUseVoiceFeatures(showHint = true) {
+    if (this.state.conversationActive) return true;
+    if (showHint) {
+      this.setVoiceUiState('idle', '🎙️ Sprache ist nur im Gesprächsmodus aktiv');
+      this.showOps('Sprache ist nur im Gesprächsmodus aktiv. Starte erst ◉ Gesprächsmodus.');
+    }
+    return false;
+  }
+
+  startConversationTurn() {
+    if (this.state.loading) return;
+    if (!this.state.conversationActive) return;
+    this.state.liveTranscript = '';
+    this.voice.startListening({
+      lang: this.state.voice.lang || 'de-DE',
+      onPartial: (text) => {
+        this.state.liveTranscript = String(text || '').trim();
+        this.renderMessages();
+      },
+      onTranscript: async (text) => {
+        const finalText = String(text || '').trim();
+        this.state.liveTranscript = '';
+        if (!finalText) {
+          this.renderMessages();
+          return;
+        }
+        this.state.lastInputWasVoice = true;
+        this.el.chatInput.value = finalText;
+        this.autosizeInput();
+        this.renderMessages();
+        await this.sendMessage();
+
+        if (this.state.conversationActive) {
+          const shouldSpeak = this.el.voiceAutoSpeak?.checked === true;
+          if (shouldSpeak) {
+            this.state.awaitingConversationResume = true;
+          } else {
+            window.setTimeout(() => this.startConversationTurn(), 180);
+          }
+        }
+      },
+    });
+  }
+
+  toggleConversationMode() {
+    this.state.conversationActive = !this.state.conversationActive;
+    if (!this.state.conversationActive) {
+      this.voice.stopListening();
+      this.voice.stopSpeaking();
+      this.state.awaitingConversationResume = false;
+      this.state.liveTranscript = '';
+      this.setVoiceUiState('idle', '🎙️ Gespräch pausiert');
+      this.renderMessages();
+      return;
+    }
+
+    this.toggleSettings(false);
+    this.setVoiceUiState('listening', '🎙️ Gespräch aktiv: spreche jetzt mit Luna');
+    this.startConversationTurn();
   }
 
   renderAdapterPaths(training = null) {
@@ -469,10 +822,14 @@ class AssistantDevUi {
     const latest = String(paths.latestExpectedAdapterPath || '').trim() || '(kein letzter erwarteter Pfad)';
     const canAutoTrain = Boolean(training?.canAutoTrain);
 
-    this.el.adapterPathOut.textContent = `Active Adapter Path: ${active}\nLatest Expected Path: ${latest}`;
-    this.el.adapterHintOut.textContent = canAutoTrain
-      ? 'Auto Train: bereit'
-      : 'Auto Train: noch nicht bereit (curated < minCurated)';
+    if (this.el.adapterPathOut) {
+      this.el.adapterPathOut.textContent = `Active Adapter Path: ${active}\nLatest Expected Path: ${latest}`;
+    }
+    if (this.el.adapterHintOut) {
+      this.el.adapterHintOut.textContent = canAutoTrain
+        ? 'Auto Train: bereit'
+        : 'Auto Train: noch nicht bereit (curated < minCurated)';
+    }
     if (this.el.btnTrainAuto) {
       this.el.btnTrainAuto.disabled = !canAutoTrain;
     }
@@ -486,6 +843,163 @@ class AssistantDevUi {
       this.showOps(status);
     }
     return status;
+  }
+
+  getVoiceSettingsFromUi() {
+    return {
+      characterId: this.state.selectedCharacter,
+      preset: String(this.el.voicePreset?.value || this.state.voice.preset || 'egirl-cute'),
+      voiceName: String(this.el.voiceDevice?.value || this.state.voice.voiceName || ''),
+      ttsProvider: String(this.el.voiceTtsProvider?.value || this.state.voice.ttsProvider || 'web-speech'),
+      sttProvider: String(this.el.voiceSttProvider?.value || this.state.voice.sttProvider || 'web-speech'),
+      avatarProfileImage: String(this.el.voiceAvatarUrl?.value || this.state.voice.avatarProfileImage || 'https://api.dicebear.com/9.x/lorelei/svg?seed=luna-cute-egirl'),
+      lang: this.state.voice.lang || 'de-DE',
+      rate: Number(this.el.voiceRate?.value || this.state.voice.rate || 1.0),
+      pitch: Number(this.el.voicePitch?.value || this.state.voice.pitch || 1.15),
+      volume: 1.0,
+      autoSpeak: this.el.voiceAutoSpeak?.checked === true,
+    };
+  }
+
+  applyVoiceSettingsToUi(voice = {}) {
+    this.state.voice = {
+      ...this.state.voice,
+      ...(voice || {}),
+      presets: Array.isArray(voice?.presets) ? voice.presets : this.state.voice.presets,
+    };
+
+    if (this.el.voiceRate) this.el.voiceRate.value = String(this.state.voice.rate || 1.0);
+    if (this.el.voicePitch) this.el.voicePitch.value = String(this.state.voice.pitch || 1.15);
+    if (this.el.voiceAutoSpeak) this.el.voiceAutoSpeak.checked = this.state.voice.autoSpeak === true;
+    if (this.el.voiceAvatarUrl) this.el.voiceAvatarUrl.value = String(this.state.voice.avatarProfileImage || 'https://api.dicebear.com/9.x/lorelei/svg?seed=luna-cute-egirl');
+    if (this.el.voiceTtsProvider) this.el.voiceTtsProvider.value = String(this.state.voice.ttsProvider || 'web-speech');
+    if (this.el.voiceSttProvider) this.el.voiceSttProvider.value = String(this.state.voice.sttProvider || 'web-speech');
+    const savedAutoLearn = window.localStorage.getItem('luna.voice.autoLearn');
+    if (savedAutoLearn != null) {
+      this.state.voice.autoLearn = savedAutoLearn === 'true';
+    }
+    if (this.el.voiceAutoLearn) this.el.voiceAutoLearn.checked = this.state.voice.autoLearn === true;
+
+    if (this.el.voicePreset) {
+      const presets = Array.isArray(this.state.voice.presets) ? this.state.voice.presets : [];
+      this.el.voicePreset.innerHTML = presets.map((preset) => `
+        <option value="${this.escapeHtml(preset.id)}">${this.escapeHtml(preset.label || preset.id)}</option>
+      `).join('');
+      this.el.voicePreset.value = String(this.state.voice.preset || 'egirl-cute');
+    }
+
+    this.applyAvatarProfileImage();
+  }
+
+  applyAvatarProfileImage() {
+    const fallback = 'https://api.dicebear.com/9.x/lorelei/svg?seed=luna-cute-egirl';
+    const imageUrl = String(this.state.voice.avatarProfileImage || '').trim() || fallback;
+
+    if (this.el.avatarPreviewImage) {
+      this.el.avatarPreviewImage.src = imageUrl;
+    }
+
+    if (this.el.avatarBtn) {
+      this.el.avatarBtn.textContent = '';
+      this.el.avatarBtn.style.backgroundImage = `url('${imageUrl.replaceAll("'", "\\'")}')`;
+      this.el.avatarBtn.style.backgroundSize = 'cover';
+      this.el.avatarBtn.style.backgroundPosition = 'center';
+      this.el.avatarBtn.style.backgroundRepeat = 'no-repeat';
+    }
+  }
+
+  async loadVoiceProviders() {
+    try {
+      const out = await this.api('/voice/providers', 'GET');
+      const providers = out?.providers || { tts: [], stt: [] };
+      this.state.voiceProviders = {
+        tts: Array.isArray(providers.tts) ? providers.tts : [],
+        stt: Array.isArray(providers.stt) ? providers.stt : [],
+      };
+
+      if (this.el.voiceTtsProvider) {
+        this.el.voiceTtsProvider.innerHTML = this.state.voiceProviders.tts
+          .map((item) => `<option value="${this.escapeHtml(item.id)}">${this.escapeHtml(item.label || item.id)}</option>`)
+          .join('');
+      }
+
+      if (this.el.voiceSttProvider) {
+        this.el.voiceSttProvider.innerHTML = this.state.voiceProviders.stt
+          .map((item) => `<option value="${this.escapeHtml(item.id)}">${this.escapeHtml(item.label || item.id)}</option>`)
+          .join('');
+      }
+    } catch {
+      this.state.voiceProviders = {
+        tts: [{ id: 'web-speech', label: 'Browser Web Speech' }, { id: 'google-cloud-tts', label: 'Google Cloud TTS' }],
+        stt: [{ id: 'web-speech', label: 'Browser Web Speech' }, { id: 'google-cloud-stt', label: 'Google Cloud STT' }],
+      };
+      if (this.el.voiceTtsProvider) {
+        this.el.voiceTtsProvider.innerHTML = this.state.voiceProviders.tts
+          .map((item) => `<option value="${this.escapeHtml(item.id)}">${this.escapeHtml(item.label || item.id)}</option>`)
+          .join('');
+      }
+      if (this.el.voiceSttProvider) {
+        this.el.voiceSttProvider.innerHTML = this.state.voiceProviders.stt
+          .map((item) => `<option value="${this.escapeHtml(item.id)}">${this.escapeHtml(item.label || item.id)}</option>`)
+          .join('');
+      }
+    }
+  }
+
+  async loadAvatarCatalog() {
+    try {
+      const out = await this.api('/avatars/catalog', 'GET');
+      this.state.avatarCatalog = Array.isArray(out?.avatars) ? out.avatars : [];
+    } catch {
+      this.state.avatarCatalog = [];
+    }
+  }
+
+  async refreshDeviceVoiceList() {
+    if (!this.el.voiceDevice) return;
+    const voices = await this.voice.loadVoices();
+    const options = (Array.isArray(voices) ? voices : []).map((voice) => {
+      const name = String(voice?.name || 'unknown');
+      const lang = String(voice?.lang || 'unknown');
+      return `<option value="${this.escapeHtml(name)}">${this.escapeHtml(name)} (${this.escapeHtml(lang)})</option>`;
+    }).join('');
+    this.el.voiceDevice.innerHTML = options || '<option value="">(keine TTS-Stimme gefunden)</option>';
+    if (this.state.voice.voiceName) {
+      this.el.voiceDevice.value = this.state.voice.voiceName;
+    }
+  }
+
+  async loadVoiceConfig() {
+    try {
+      await this.loadVoiceProviders();
+      await this.loadAvatarCatalog();
+      const out = await this.api(`/voice/config?characterId=${encodeURIComponent(this.state.selectedCharacter)}`, 'GET');
+      this.applyVoiceSettingsToUi(out?.voice || {});
+      await this.refreshDeviceVoiceList();
+    } catch {
+      this.applyVoiceSettingsToUi({
+        preset: 'egirl-cute',
+        rate: 1.03,
+        pitch: 1.35,
+        autoSpeak: false,
+        ttsProvider: 'web-speech',
+        sttProvider: 'web-speech',
+        avatarProfileImage: 'https://api.dicebear.com/9.x/lorelei/svg?seed=luna-cute-egirl',
+        presets: [
+          { id: 'egirl-cute', label: 'Cute E-Girl' },
+          { id: 'warm-coach', label: 'Warm Coach' },
+          { id: 'clear-pro', label: 'Clear Pro' },
+        ],
+      });
+      await this.refreshDeviceVoiceList();
+    }
+  }
+
+  async saveVoiceSettings() {
+    const payload = this.getVoiceSettingsFromUi();
+    const out = await this.api('/voice/settings', 'POST', payload);
+    this.applyVoiceSettingsToUi(out?.voice || payload);
+    this.showOps('Voice-Settings gespeichert');
   }
 
   async runSettingsAction(action) {
@@ -531,9 +1045,11 @@ class AssistantDevUi {
           assistantMessage = window.prompt('Assistant Message für Example Adapter Training', 'Hallo! Schön, dass du da bist.') || '';
         }
 
-        this.showOps(await this.api('/training/lora/example-adapter', 'POST', {
+        const selectedProfile = String(this.el.trainingProfile?.value || 'auto').trim();
+        this.showOps(await this.api('/training/lora/start-smart', 'POST', {
           characterId: this.state.selectedCharacter,
           mode: this.state.mode,
+          profile: selectedProfile,
           userMessage,
           assistantMessage,
           datasetTier: 'curated',
@@ -557,7 +1073,44 @@ class AssistantDevUi {
         await this.refreshModeAndStatus();
         await this.refreshTrainingStatus(true);
         await this.refreshInfraStatus();
+        await this.loadVoiceConfig();
         this.showOps('Settings + Training Status aktualisiert');
+        return;
+      }
+      if (action === 'voiceSave') {
+        await this.saveVoiceSettings();
+        return;
+      }
+      if (action === 'voiceSpeak') {
+        if (!this.canUseVoiceFeatures()) return;
+        const text = String(this.state.lastAssistantText || '').trim();
+        if (!text) {
+          this.showOps('Keine Assistant-Antwort zum Vorlesen vorhanden.');
+          return;
+        }
+        this.voice.speak(text, this.getVoiceSettingsFromUi());
+        return;
+      }
+      if (action === 'voiceStop') {
+        this.voice.stopSpeaking();
+        return;
+      }
+      if (action === 'voiceListen') {
+        if (!this.canUseVoiceFeatures()) return;
+        this.state.liveTranscript = '';
+        this.voice.startListening({
+          lang: this.state.voice.lang || 'de-DE',
+          onPartial: (text) => {
+            this.state.liveTranscript = String(text || '').trim();
+            this.renderMessages();
+          },
+          onTranscript: (text) => {
+            this.state.liveTranscript = '';
+            this.el.chatInput.value = String(text || '').trim();
+            this.autosizeInput();
+            this.renderMessages();
+          },
+        });
         return;
       }
     } catch (error) {
@@ -571,6 +1124,14 @@ class AssistantDevUi {
 
   closeCharacterOverlay() {
     this.el.overlay.classList.remove('open');
+  }
+
+  openAvatarOverlay() {
+    this.el.avatarOverlay?.classList.add('open');
+  }
+
+  closeAvatarOverlay() {
+    this.el.avatarOverlay?.classList.remove('open');
   }
 
   renderCharacters() {
@@ -681,23 +1242,23 @@ class AssistantDevUi {
       }
     };
 
-    this.el.fab.addEventListener('click', () => this.togglePanel());
-    this.el.closeBtn.addEventListener('click', () => this.togglePanel(false));
-    this.el.settingsToggle.addEventListener('click', () => this.toggleSettings(true));
-    this.el.tabChat.addEventListener('click', () => this.toggleSettings(false));
-    this.el.tabSettings.addEventListener('click', () => this.toggleSettings(true));
-    this.el.modeToggle.addEventListener('click', () => this.toggleMode());
-    this.el.sendBtn.addEventListener('click', () => this.sendMessage());
+    bindClick(this.el.fab, () => this.togglePanel());
+    bindClick(this.el.closeBtn, () => this.togglePanel(false));
+    bindClick(this.el.settingsToggle, () => this.toggleSettings(true));
+    bindClick(this.el.tabChat, () => this.toggleSettings(false));
+    bindClick(this.el.tabSettings, () => this.toggleSettings(true));
+    bindClick(this.el.modeToggle, () => this.toggleMode());
+    bindClick(this.el.sendBtn, () => this.sendMessage());
 
-    this.el.chatInput.addEventListener('input', () => this.autosizeInput());
-    this.el.chatInput.addEventListener('keydown', (event) => {
+    this.el.chatInput?.addEventListener('input', () => this.autosizeInput());
+    this.el.chatInput?.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();
         this.sendMessage();
       }
     });
 
-    this.el.chatScroll.addEventListener('click', (event) => {
+    this.el.chatScroll?.addEventListener('click', (event) => {
       this.handleMessageAction(event.target);
     });
 
@@ -707,26 +1268,50 @@ class AssistantDevUi {
     bindClick(this.el.btnDelete7Days, () => this.runSettingsAction('delete7Days'));
     bindClick(this.el.btnDeleteMonth, () => this.runSettingsAction('deleteMonth'));
     bindClick(this.el.btnEnsureTrainer, () => this.runSettingsAction('ensureTrainer'));
+    bindClick(this.el.btnVoiceSave, () => this.runSettingsAction('voiceSave'));
+    bindClick(this.el.btnVoiceSpeak, () => this.runSettingsAction('voiceSpeak'));
+    bindClick(this.el.btnVoiceStop, () => this.runSettingsAction('voiceStop'));
+    bindClick(this.el.btnVoiceListen, () => this.runSettingsAction('voiceListen'));
+    bindClick(this.el.btnConversation, () => this.toggleConversationMode());
     bindClick(this.el.btnExampleAdapter, () => this.runSettingsAction('exampleAdapter'));
-    bindClick(this.el.btnRunApi, () => this.runApiExplorer());
 
-    if (this.el.apiEndpoint) {
-      this.el.apiEndpoint.addEventListener('input', () => this.updateApiMethodHint());
-      this.el.apiEndpoint.addEventListener('change', () => {
-        this.updateApiMethodHint();
-        this.prefillApiPayloadForCurrentEndpoint();
+    if (this.el.voicePreset) {
+      this.el.voicePreset.addEventListener('change', () => {
+        const selected = String(this.el.voicePreset.value || '').trim();
+        const presets = Array.isArray(this.state.voice.presets) ? this.state.voice.presets : [];
+        const match = presets.find((preset) => String(preset?.id || '') === selected);
+        if (!match) return;
+        if (this.el.voiceRate) this.el.voiceRate.value = String(match?.settings?.rate ?? this.el.voiceRate.value);
+        if (this.el.voicePitch) this.el.voicePitch.value = String(match?.settings?.pitch ?? this.el.voicePitch.value);
       });
     }
 
-    this.el.avatarBtn.addEventListener('click', () => this.openCharacterOverlay());
-    this.el.closeOverlay.addEventListener('click', () => this.closeCharacterOverlay());
-    this.el.overlay.addEventListener('click', (event) => {
+    if (this.el.voiceAutoLearn) {
+      this.el.voiceAutoLearn.addEventListener('change', () => {
+        const enabled = this.el.voiceAutoLearn.checked === true;
+        this.state.voice.autoLearn = enabled;
+        window.localStorage.setItem('luna.voice.autoLearn', enabled ? 'true' : 'false');
+        this.showOps(enabled ? '🧠 Auto-Learn Voice aktiv' : '🧠 Auto-Learn Voice pausiert');
+      });
+    }
+
+    this.el.avatarBtn?.addEventListener('click', () => this.openAvatarOverlay());
+    this.el.charNameBtn?.addEventListener('click', () => this.openCharacterOverlay());
+    this.el.closeOverlay?.addEventListener('click', () => this.closeCharacterOverlay());
+    this.el.closeAvatarOverlay?.addEventListener('click', () => this.closeAvatarOverlay());
+    this.el.overlay?.addEventListener('click', (event) => {
       if (event.target === this.el.overlay) {
         this.closeCharacterOverlay();
       }
     });
 
-    this.el.charGrid.addEventListener('click', async (event) => {
+    this.el.avatarOverlay?.addEventListener('click', (event) => {
+      if (event.target === this.el.avatarOverlay) {
+        this.closeAvatarOverlay();
+      }
+    });
+
+    this.el.charGrid?.addEventListener('click', async (event) => {
       const item = event.target.closest('[data-char]');
       if (!item) return;
 
@@ -734,25 +1319,38 @@ class AssistantDevUi {
       this.applyCharacterUi();
       this.renderCharacters();
       this.closeCharacterOverlay();
+      this.loadCurrentCharacterMessages();
+      this.renderMessages();
+      this.savePanelPrefs();
       await this.refreshModeAndStatus();
+      await this.loadVoiceConfig();
     });
   }
 
   async init() {
+    this.loadPanelPrefs();
+    this.loadMessagesStore();
     this.wireEvents();
+    this.togglePanel(this.state.open);
     this.setModeUi();
     this.applyCharacterUi();
     await this.loadCharacters();
+    this.loadCurrentCharacterMessages();
+    this.renderMessages();
     await this.refreshModeAndStatus();
     await this.refreshTrainingStatus();
     await this.refreshInfraStatus();
-
-    if (this.el.apiEndpoint) {
-      this.updateApiMethodHint();
-      this.prefillApiPayloadForCurrentEndpoint();
+    await this.loadVoiceConfig();
+    if (this.el.voiceAutoSpeak) this.el.voiceAutoSpeak.checked = true;
+    if (this.el.voiceAutoLearn && this.el.voiceAutoLearn.checked == null) {
+      this.el.voiceAutoLearn.checked = this.state.voice.autoLearn === true;
     }
+    this.applyAvatarProfileImage();
+    this.setVoiceUiState('idle', '🎙️ Voice bereit');
 
-    this.appendMessage('assistant', 'Hi ✨ Ich bin bereit. Schreib mir eine Nachricht oder öffne Settings für Training/LoRA.', 'bereit');
+    if (!this.state.messages.length) {
+      this.appendMessage('assistant', 'Hi ✨ Ich bin bereit. Tippe unten oder nutze 🎤 für Spracheingabe.', 'bereit');
+    }
     this.autosizeInput();
 
     window.setInterval(() => {

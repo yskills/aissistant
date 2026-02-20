@@ -7,6 +7,13 @@
       "command": "npm",
       "args": ["run", "lora:trainer:ensure"],
       "problemMatcher": []
+    },
+    {
+      "label": "Lora Trainer Down",
+      "type": "shell",
+      "command": "npm",
+      "args": ["run", "lora:trainer:down"],
+      "problemMatcher": []
     }
   ]
 }

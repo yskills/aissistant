@@ -2,7 +2,7 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "type": "pwa-node",
+      "type": "node",
       "request": "launch",
       "name": "Luna Dev UI (F5 + Chrome)",
       "program": "${workspaceFolder}/src/devServer.js",
@@ -20,10 +20,11 @@
       }
     },
     {
-      "type": "pwa-node",
+      "type": "node",
       "request": "launch",
       "name": "Luna Dev UI (+ Trainer Ensure)",
       "preLaunchTask": "Lora Trainer Ensure Up",
+      "postDebugTask": "Lora Trainer Down",
       "program": "${workspaceFolder}/src/devServer.js",
       "cwd": "${workspaceFolder}",
       "envFile": "${workspaceFolder}/.env",
@@ -39,7 +40,7 @@
       }
     },
     {
-      "type": "pwa-chrome",
+      "type": "chrome",
       "request": "launch",
       "name": "Open Luna UI (Chrome)",
       "url": "http://127.0.0.1:5050",

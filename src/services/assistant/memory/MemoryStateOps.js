@@ -1,3 +1,29 @@
+function sanitizeVoiceSettings(input = {}) {
+  const source = (input && typeof input === 'object') ? input : {};
+  const toNumber = (value, fallback) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+
+  const preset = String(source.preset || 'egirl-cute').trim().toLowerCase() || 'egirl-cute';
+  const voiceName = String(source.voiceName || '').trim();
+  const lang = String(source.lang || 'de-DE').trim() || 'de-DE';
+  const rate = Math.min(1.5, Math.max(0.6, toNumber(source.rate, 1.0)));
+  const pitch = Math.min(2.0, Math.max(0.6, toNumber(source.pitch, 1.15)));
+  const volume = Math.min(1.0, Math.max(0.1, toNumber(source.volume, 1.0)));
+  const autoSpeak = source.autoSpeak === true;
+
+  return {
+    preset,
+    voiceName,
+    lang,
+    rate,
+    pitch,
+    volume,
+    autoSpeak,
+  };
+}
+
 export function defaultUserState(manager) {
   return {
     profile: {
@@ -16,6 +42,7 @@ export function defaultUserState(manager) {
         uncensoredInstructions: [],
         uncensoredMemories: [],
         trainingExamples: [],
+        voiceSettings: sanitizeVoiceSettings(),
       },
     },
     history: [],
@@ -71,6 +98,7 @@ export function normalizeUserState(manager, user) {
             .filter((item) => item.user && item.assistant)
             .slice(-300)
           : [],
+        voiceSettings: sanitizeVoiceSettings(user?.profile?.modeExtras?.voiceSettings),
       },
     },
     history: Array.isArray(user?.history) ? user.history : [],
@@ -182,6 +210,7 @@ export function setModeExtras(manager, userId = 'default', { instructions, memor
     trainingExamples: Array.isArray(user.profile?.modeExtras?.trainingExamples)
       ? user.profile.modeExtras.trainingExamples.slice(-300)
       : [],
+    voiceSettings: sanitizeVoiceSettings(user.profile?.modeExtras?.voiceSettings),
   };
 
   memory.users[userId] = user;

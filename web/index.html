@@ -8,104 +8,128 @@
   <script src="./app.js" defer></script>
 </head>
 <body>
-  <section class="infra-status-board" aria-live="polite">
-    <div class="infra-card">
-      <div class="infra-head">
-        <span class="infra-title">Core Server</span>
-        <span id="serverSpinner" class="infra-spinner"></span>
-      </div>
-      <div id="serverStatus" class="infra-value">prüfe ...</div>
-      <div id="serverDetail" class="infra-detail">Warte auf Health-Check</div>
-    </div>
-    <div class="infra-card">
-      <div class="infra-head">
-        <span class="infra-title">GPU-ML Trainer</span>
-        <span id="gpuSpinner" class="infra-spinner"></span>
-      </div>
-      <div id="gpuStatus" class="infra-value">prüfe ...</div>
-      <div id="gpuDetail" class="infra-detail">Warte auf Provider-Check</div>
-    </div>
-  </section>
+  <button id="fab" class="assistant-fab" aria-label="Assistant öffnen">✦</button>
 
-  <button id="fab" class="assistant-fab" aria-label="Assistant öffnen">×</button>
-
-  <aside id="panel" class="panel open" role="dialog" aria-modal="false">
-    <div class="panel-head">
+  <aside id="panel" class="panel" role="dialog" aria-modal="false">
+    <div class="panel-head glass">
       <div class="assistant-title">
-        <button id="avatarBtn" class="avatar" title="Charakter wählen">L</button>
+        <button id="avatarBtn" class="avatar" title="Profilbild vergrößern" aria-label="Profilbild vergrößern">L</button>
         <div class="assistant-meta">
-          <h2 id="charName">Luna</h2>
+          <button id="charNameBtn" class="char-name-btn" title="Model auswählen" aria-label="Model auswählen">
+            <h2 id="charName">Luna</h2>
+          </button>
           <div id="llmStatus" class="status">Lade Status ...</div>
         </div>
       </div>
       <div class="head-actions">
+        <button id="modeToggle" class="chip-btn mode-toggle">○ normal</button>
         <button id="settingsToggle" class="icon-btn" title="Settings">⚙</button>
         <button id="closeBtn" class="icon-btn" title="Schließen">×</button>
       </div>
     </div>
 
-    <div class="panel-tabs">
+    <div class="panel-tabs glass">
       <div class="tabs">
         <button id="tabChat" class="tab active">Chat</button>
         <button id="tabSettings" class="tab">Settings</button>
       </div>
-      <button id="modeToggle" class="chip-btn mode-toggle">○ normal</button>
+      <div class="infra-inline" aria-live="polite">
+        <span><strong id="serverStatus" class="infra-value">prüfe ...</strong> · <small id="serverDetail">Core</small></span>
+        <span><strong id="gpuStatus" class="infra-value">prüfe ...</strong> · <small id="gpuDetail">Trainer</small></span>
+        <span id="serverSpinner" class="infra-spinner"></span>
+        <span id="gpuSpinner" class="infra-spinner"></span>
+      </div>
     </div>
 
     <div class="panel-body">
       <section id="chatView" class="chat-view active">
+        <div id="conversationHint" class="conversation-hint">Gesprächsmodus starten</div>
         <div id="chatScroll" class="chat-scroll"></div>
         <div class="panel-foot">
+          <div id="voiceStatus" class="voice-status idle" aria-live="polite">🎙️ Voice bereit</div>
           <textarea id="chatInput" placeholder="Schreib hier..." rows="1"></textarea>
+          <button id="btnConversation" class="conversation-btn" title="Gesprächsmodus">◉</button>
+          <button id="btnVoiceListen" class="send-btn voice-btn" title="Spracheingabe">🎤</button>
           <button id="sendBtn" class="send-btn" title="Senden">→</button>
         </div>
       </section>
 
       <section id="settingsView" class="settings-view">
         <div class="settings-scroll">
-          <div class="settings-section" style="padding:8px 8px 10px;border-radius:12px;">
-            <p class="section-title">Assistant Settings / Memory Admin</p>
+          <div class="settings-section">
+            <p class="section-title">Voice</p>
+            <div class="line">
+              <label>Voice Preset</label>
+              <select id="voicePreset"></select>
+            </div>
+            <div class="line">
+              <label>TTS Provider</label>
+              <select id="voiceTtsProvider"></select>
+              <label>STT Provider</label>
+              <select id="voiceSttProvider"></select>
+            </div>
+            <div class="line">
+              <label>Geräte-Stimme</label>
+              <select id="voiceDevice"></select>
+            </div>
+            <div class="line">
+              <label>Avatar URL</label>
+              <input id="voiceAvatarUrl" type="text" placeholder="https://... oder ./assets/luna-profile.svg" />
+            </div>
+            <div class="line">
+              <label>Rate</label>
+              <input id="voiceRate" type="number" step="0.01" min="0.6" max="1.5" value="1.03" />
+              <label>Pitch</label>
+              <input id="voicePitch" type="number" step="0.01" min="0.6" max="2.0" value="1.35" />
+            </div>
+            <div class="line compact">
+              <label>Auto-Speak</label>
+              <input id="voiceAutoSpeak" type="checkbox" />
+              <label>Auto-Learn Voice</label>
+              <input id="voiceAutoLearn" type="checkbox" />
+              <button id="btnVoiceSpeak" class="soft">🔊 Letzte Antwort</button>
+              <button id="btnVoiceStop" class="soft">⏹ Stop</button>
+              <button id="btnVoiceSave" class="primary">Voice speichern</button>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <p class="section-title">Training</p>
+            <div class="line">
+              <label>Profil</label>
+              <select id="trainingProfile">
+                <option value="auto">Auto (bestes Profil)</option>
+                <option value="gpu-fast">GPU Fast</option>
+                <option value="cpu-quiet">CPU Quiet</option>
+              </select>
+            </div>
+            <div class="line">
+              <label>minCurated</label>
+              <input id="minCurated" type="number" value="20" />
+              <button id="btnEnsureTrainer" class="soft">Trainer starten</button>
+              <button id="btnExampleAdapter" class="primary">Train Smart</button>
+              <button id="btnRefresh" class="soft">Refresh</button>
+            </div>
             <div class="overview">
               <div class="ov-card"><strong id="ovHist">0</strong><span>History</span></div>
               <div class="ov-card"><strong id="ovUnc">0</strong><span>Uncensored</span></div>
               <div class="ov-card"><strong id="ovMem">0</strong><span>Memories</span></div>
               <div class="ov-card"><strong id="ovMode">normal</strong><span>Mode</span></div>
             </div>
+          </div>
 
-            <div class="settings-actions">
-              <button id="btnEnsureTrainer" class="soft">Trainer starten</button>
-              <button id="btnExampleAdapter" class="primary">Example Adapter</button>
+          <div class="settings-section">
+            <p class="section-title">Speicher</p>
+            <div class="overview">
+              <button id="btnDeleteDay" class="soft">Tag löschen</button>
+              <button id="btnDelete7Days" class="soft">7 Tage löschen</button>
+              <button id="btnDeleteMonth" class="soft">Monat löschen</button>
               <button id="btnReset" class="danger">Complete Reset</button>
-              <button id="btnRefresh" class="soft">Refresh Settings</button>
-            </div>
-
-            <div class="line">
-              <label style="font-size:12px;color:var(--txt-dim)">minCurated</label>
-              <input id="minCurated" type="number" value="20" />
-            </div>
-
-            <div class="line">
-              <button id="btnDeleteDay" class="soft" style="flex:1;">Tag löschen</button>
-              <button id="btnDelete7Days" class="soft" style="flex:1;">7 Tage löschen</button>
-              <button id="btnDeleteMonth" class="soft" style="flex:1;">Monat löschen</button>
             </div>
           </div>
 
           <div class="status-line" id="adapterPathOut"></div>
           <div class="status-line" id="adapterHintOut"></div>
-
-          <div class="settings-section api-explorer">
-            <p class="section-title">API Explorer</p>
-            <div class="line">
-              <input id="apiEndpoint" type="text" value="/training/status?minCurated=20" placeholder="/mode?characterId=luna" />
-            </div>
-            <div class="line">
-              <span id="apiMethod" class="api-method">GET</span>
-              <button id="btnRunApi" class="soft" style="flex:1;">Endpoint ausführen</button>
-            </div>
-            <textarea id="apiPayload" class="api-payload" rows="5" placeholder='{"characterId":"luna"}'></textarea>
-            <p class="api-hint">Für GET bleibt Payload leer. Für POST/PUT JSON einfügen.</p>
-          </div>
 
           <div class="status-line" id="opsOut"></div>
         </div>
@@ -119,6 +143,15 @@
       <div id="charGrid" class="char-grid"></div>
       <div style="display:flex;justify-content:flex-end;margin-top:10px;">
         <button id="closeOverlay" class="icon-btn">Schließen</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="avatarOverlay" class="overlay avatar-overlay" role="dialog" aria-modal="true">
+    <div class="avatar-modal">
+      <img id="avatarPreviewImage" src="https://api.dicebear.com/9.x/lorelei/svg?seed=luna-cute-egirl" alt="Luna Profilbild groß" />
+      <div style="display:flex;justify-content:flex-end;margin-top:10px;">
+        <button id="closeAvatarOverlay" class="icon-btn">Schließen</button>
       </div>
     </div>
   </div>

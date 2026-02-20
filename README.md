@@ -5,10 +5,12 @@ State-of-the-art AI-Companion-Core für produktive Projekte: Chat, Memory, Feedb
 ## Was das Projekt kann
 
 - Companion-API mit Character-/Mode-Steuerung (`normal` / `uncensored`)
+- Optionale harte Luna-Fixierung für alle Requests (`ASSISTANT_FORCE_CHARACTER_ID=luna`)
 - Persistentes Memory (SQLite), Feedback-Erfassung und Training-Examples
 - LoRA-Orchestrierung mit Adapter-Registry, Versionierung und Auto-Promotion
 - Echten Trainingsstart direkt aus UI oder API (`Example Adapter`)
 - Live-Status für Core und GPU-ML-Trainer (`provider-health`)
+- Sprachschnittstelle (Web Speech API) mit 3 Voice-Presets + Speech-to-Text Input
 - Sofort nutzbar in anderen Projekten über Library-Integration
 
 ## Schnellstart
@@ -20,11 +22,11 @@ npm test
 
 Danach in VS Code `F5` drücken (`Luna Dev UI (F5 + Chrome)`).
 
-Hinweis: Standard-`F5` startet **nur** die UI (leiser Modus, ohne Trainer-Autostart).
+Standard-`F5`:
 
-Wenn du Trainer-Autostart willst, nutze die Launch-Config `Luna Dev UI (+ Trainer Ensure)`.
+- startet nur die UI (kein Docker/Trainer-Autostart)
 
-State-of-the-art On-Demand-Modus (Standard):
+On-Demand-Modus (Standard):
 
 - LoRA-Training-Endpoints starten `lora:trainer:ensure` automatisch bei Bedarf.
 - Im Alltag bleibt `F5` leichtgewichtig und leise.
@@ -34,6 +36,12 @@ Optional für den Ensure-Task:
 - `ASSISTANT_SKIP_TRAINER_AUTOSTART=true` → Trainer-Autostart komplett aus
 - `ASSISTANT_TRAINER_BUILD_ON_START=true` → beim Ensure zusätzlich `--build` (lauter/langsamer)
 - `ASSISTANT_LORA_ENSURE_ON_DEMAND=false` → On-Demand-Ensure über API deaktivieren
+
+Wichtige Super-Luna Defaults (`.env`):
+
+- `LLM_PROVIDER=ollama`
+- `LLM_MODEL=luna:latest`
+- `ASSISTANT_FORCE_CHARACTER_ID=luna`
 
 ## Lokaler Standard-Workflow
 
@@ -54,10 +62,17 @@ npm run train:luna
 - `GET /assistant/training/lora/status?jobId=...`
 - `GET /assistant/training/status?minCurated=...`
 - `GET /assistant/training/lora/provider-health`
+- `GET /assistant/voice/config?characterId=...`
+- `GET /assistant/voice/settings?characterId=...`
+- `POST /assistant/voice/settings`
+- `GET /assistant/luna/presets`
+- `POST /assistant/luna/presets/apply`
+- `POST /assistant/luna/ingest`
 
 ## Doku
 
 - Training hier im Projekt: `TRAINING-GUIDE-DE.md`
+- Voice hier im Projekt: `VOICE-GUIDE-DE.md`
 - Setup in anderen Projekten: `SETUP-OTHER-PROJECTS-DE.md`
 - WSL2-Ressourcen-Vorlage: `.wslconfig.example`
 - Release-Workflow: `RELEASE-GUIDE-DE.md`

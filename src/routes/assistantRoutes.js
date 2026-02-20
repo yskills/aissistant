@@ -11,6 +11,12 @@ const UNCENSORED_MODE_PASSWORD = String(
 ).trim();
 const UNCENSORED_AUTH_WINDOW_MS = Number(process.env.UNCENSORED_AUTH_WINDOW_MS || 5 * 60 * 1000);
 const UNCENSORED_AUTH_MAX_ATTEMPTS = Number(process.env.UNCENSORED_AUTH_MAX_ATTEMPTS || 5);
+const FORCED_CHARACTER_ID = (() => {
+  const value = String(process.env.ASSISTANT_FORCE_CHARACTER_ID || '').trim().toLowerCase();
+  if (!value) return '';
+  if (!/^[a-z0-9_-]{2,32}$/.test(value)) return '';
+  return value;
+})();
 // In-Memory Rate-Limit pro IP für uncensored Passwortversuche.
 // Absichtlich einfach gehalten, da dieses Modul zustandslos neu startbar sein soll.
 const uncensoredAuthAttempts = new Map();
@@ -70,6 +76,9 @@ function normalizeCharacterId(value) {
 }
 
 function getAssistantUserId(req) {
+  if (FORCED_CHARACTER_ID) {
+    return FORCED_CHARACTER_ID;
+  }
   const bodyCharacterId = req?.body?.characterId;
   const queryCharacterId = req?.query?.characterId;
   return normalizeCharacterId(bodyCharacterId || queryCharacterId || 'luna');
@@ -337,6 +346,54 @@ function buildLoraCliArgs({
   };
 }
 
+function resolveTrainingProfileId(value = '', { hasCuda = null } = {}) {
+  const wanted = String(value || 'auto').trim().toLowerCase();
+  if (wanted === 'gpu-fast') return hasCuda === false ? 'cpu-quiet' : 'gpu-fast';
+  if (wanted === 'cpu-quiet') return 'cpu-quiet';
+  if (wanted === 'auto') return hasCuda === true ? 'gpu-fast' : 'cpu-quiet';
+  return hasCuda === true ? 'gpu-fast' : 'cpu-quiet';
+}
+
+function getTrainingProfileConfig(profileId = 'cpu-quiet') {
+  const profiles = {
+    'cpu-quiet': {
+      id: 'cpu-quiet',
+      label: 'CPU Quiet',
+      description: 'Leiser/energiesparender Lauf auf CPU mit kleineren Hyperparametern.',
+      overrides: {
+        batchSize: 1,
+        epochs: 2,
+        rank: 8,
+        alpha: 16,
+        learningRate: 0.00015,
+      },
+    },
+    'gpu-fast': {
+      id: 'gpu-fast',
+      label: 'GPU Fast',
+      description: 'Schneller Lauf auf CUDA mit höherem Durchsatz.',
+      overrides: {
+        batchSize: 6,
+        epochs: 3,
+        rank: 16,
+        alpha: 32,
+        learningRate: 0.0002,
+      },
+    },
+  };
+
+  return profiles[profileId] || profiles['cpu-quiet'];
+}
+
+async function getLoraProviderHealthSafe(loraGateway) {
+  try {
+    const health = await loraGateway.getProviderHealth();
+    return health?.response || null;
+  } catch {
+    return null;
+  }
+}
+
 export default function createAssistantRouter({
   CompanionLLMService,
   AlpacaService,
@@ -490,6 +547,110 @@ export default function createAssistantRouter({
       return res.json({ ok: true, requestId: req.requestId, profile: user.profile });
     } catch (error) {
       return sendErrorResponse(res, 500, error.message, req.requestId);
+    }
+  });
+
+  router.get('/voice/config', (req, res) => {
+    try {
+      const voice = CompanionLLMService.getVoiceSettings(getAssistantUserId(req));
+      return res.json({
+        ok: true,
+        requestId: req.requestId,
+        voice,
+      });
+    } catch (error) {
+      return sendErrorResponse(res, 500, error.message, req.requestId);
+    }
+  });
+
+  router.get('/voice/settings', (req, res) => {
+    try {
+      const voice = CompanionLLMService.getVoiceSettings(getAssistantUserId(req));
+      return res.json({
+        ok: true,
+        requestId: req.requestId,
+        voice,
+      });
+    } catch (error) {
+      return sendErrorResponse(res, 500, error.message, req.requestId);
+    }
+  });
+
+  router.get('/voice/providers', (req, res) => {
+    try {
+      const providers = CompanionLLMService.getSpeechProviderCatalog();
+      return res.json({
+        ok: true,
+        requestId: req.requestId,
+        providers,
+      });
+    } catch (error) {
+      return sendErrorResponse(res, 500, error.message, req.requestId);
+    }
+  });
+
+  router.get('/avatars/catalog', (req, res) => {
+    try {
+      const avatars = CompanionLLMService.getAvatarModelCatalog();
+      return res.json({
+        ok: true,
+        requestId: req.requestId,
+        avatars,
+      });
+    } catch (error) {
+      return sendErrorResponse(res, 500, error.message, req.requestId);
+    }
+  });
+
+  router.post('/voice/settings', (req, res) => {
+    try {
+      const voice = CompanionLLMService.updateVoiceSettings(getAssistantUserId(req), req.body || {});
+      return res.json({
+        ok: true,
+        requestId: req.requestId,
+        voice,
+      });
+    } catch (error) {
+      return sendErrorResponse(res, 500, error.message, req.requestId);
+    }
+  });
+
+  router.get('/luna/presets', (req, res) => {
+    try {
+      const presets = CompanionLLMService.getBehaviorPresets();
+      return res.json({
+        ok: true,
+        requestId: req.requestId,
+        presets,
+      });
+    } catch (error) {
+      return sendErrorResponse(res, 500, error.message, req.requestId);
+    }
+  });
+
+  router.post('/luna/presets/apply', (req, res) => {
+    try {
+      const result = CompanionLLMService.applyBehaviorPreset(getAssistantUserId(req), req.body || {});
+      return res.json({
+        ok: true,
+        requestId: req.requestId,
+        result,
+      });
+    } catch (error) {
+      return sendErrorResponse(res, 400, error.message, req.requestId);
+    }
+  });
+
+  router.post('/luna/ingest', (req, res) => {
+    try {
+      const result = CompanionLLMService.ingestExternalSignal(getAssistantUserId(req), req.body || {});
+      return res.json({
+        ok: true,
+        requestId: req.requestId,
+        result,
+      });
+    } catch (error) {
+      return sendErrorResponse(res, 400, error.message, req.requestId);
     }
   });
 
@@ -827,6 +988,111 @@ export default function createAssistantRouter({
           health: null,
         },
       });
+    }
+  });
+
+  router.get('/training/lora/profiles', async (req, res) => {
+    try {
+      const config = loraGateway.getPublicConfig();
+      const health = await getLoraProviderHealthSafe(loraGateway);
+      const hasCuda = health?.cudaAvailable === true;
+      const recommended = resolveTrainingProfileId('auto', { hasCuda });
+
+      return res.json({
+        ok: true,
+        requestId: req.requestId,
+        provider: {
+          enabled: Boolean(config?.enabled),
+          reachable: !!health,
+          cudaAvailable: health?.cudaAvailable ?? null,
+          health,
+        },
+        recommended,
+        profiles: [
+          getTrainingProfileConfig('cpu-quiet'),
+          getTrainingProfileConfig('gpu-fast'),
+        ],
+      });
+    } catch (error) {
+      return sendErrorResponse(res, 500, error.message, req.requestId);
+    }
+  });
+
+  router.post('/training/lora/start-smart', async (req, res) => {
+    try {
+      const body = req.body || {};
+      const userId = getAssistantUserId(req);
+      const ensure = ensureLoraTrainerOnDemand({ runtime, body });
+
+      const health = await getLoraProviderHealthSafe(loraGateway);
+      const hasCuda = health?.cudaAvailable === true;
+      const selectedProfile = resolveTrainingProfileId(body.profile || 'auto', { hasCuda });
+      const profileConfig = getTrainingProfileConfig(selectedProfile);
+
+      const messagePair = resolveMessagePair({
+        userMessage: body.userMessage || body.user,
+        assistantMessage: body.assistantMessage || body.assistant,
+      });
+      let trainingExample = null;
+
+      if (messagePair.hasPair) {
+        const currentMode = CompanionLLMService.getMode(userId)?.mode || 'normal';
+        const mode = String(body.mode || currentMode).trim().toLowerCase() || currentMode;
+        trainingExample = CompanionLLMService.addTrainingExample(userId, {
+          mode,
+          source: String(body.source || 'smart-train-ui').trim() || 'smart-train-ui',
+          accepted: true,
+          user: messagePair.user,
+          assistant: messagePair.assistant,
+          userOriginal: messagePair.user,
+          assistantOriginal: messagePair.assistant,
+        });
+      }
+
+      const mergedBody = {
+        ...body,
+        ...profileConfig.overrides,
+        dryRun: body.dryRun == null ? false : body.dryRun,
+        skipEval: body.skipEval == null ? true : body.skipEval,
+        skipExport: body.skipExport == null ? false : body.skipExport,
+        datasetTier: body.datasetTier || 'curated',
+        minCurated: body.minCurated || 1,
+      };
+
+      const { args, minCurated } = buildLoraCliArgs({
+        body: mergedBody,
+        runtime,
+        minCuratedDefault: 1,
+        skipEvalDefault: true,
+        skipExportDefault: false,
+      });
+
+      const { stdout, stderr, exitCode, parsed } = runTrainingCommand({ runtime, args });
+
+      if (exitCode !== 0) {
+        return sendErrorResponse(
+          res,
+          500,
+          `train:lora start-smart failed (exit ${exitCode})${stderr ? `: ${stderr.slice(-400)}` : ''}`,
+          req.requestId,
+        );
+      }
+
+      return res.json({
+        ok: true,
+        requestId: req.requestId,
+        training: {
+          exitCode,
+          minCurated,
+          profile: profileConfig,
+          ensure,
+          trainingExample,
+          result: parsed,
+          stdoutTail: stdout.slice(-2500),
+        },
+      });
+    } catch (error) {
+      return sendErrorResponse(res, 500, error.message, req.requestId);
     }
   });
 

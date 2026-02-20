@@ -1,0 +1,232 @@
+<link rel="stylesheet" href="./luna-chat.css" />
+
+<div id="lunaShell" class="luna-assistant-shell">
+  <button id="btnFab" class="luna-assistant-fab" type="button" aria-label="Toggle Assistant">✦</button>
+
+  <section id="lunaChat" class="luna-chat" data-conversation="off" data-mode="normal">
+    <header class="luna-chat__head glass">
+      <div class="luna-chat__profile">
+        <img id="assistantAvatar" class="luna-chat__avatar" src="https://api.dicebear.com/9.x/lorelei/svg?seed=luna-cute-egirl" alt="Luna" />
+        <div>
+          <h2 id="assistantName" class="luna-chat__title">Luna</h2>
+          <small id="assistantStatus" class="luna-chat__status ok">Live LLM</small>
+        </div>
+      </div>
+      <div class="luna-chat__head-actions">
+        <button id="btnCharacters" class="luna-chat__icon-btn" type="button" title="Characters">👤</button>
+        <button id="btnSettings" class="luna-chat__icon-btn" type="button" title="Settings">⚙</button>
+        <button id="btnClose" class="luna-chat__icon-btn" type="button" title="Close">×</button>
+      </div>
+    </header>
+
+    <div class="luna-chat__tabs glass">
+      <span id="sectionChip" class="luna-chat__chip">Chat</span>
+      <button id="btnMode" class="luna-chat__btn" type="button" title="Mode">○</button>
+    </div>
+
+    <div class="luna-chat__body">
+      <div class="luna-chat__conversation-avatar">
+        <img class="luna-chat__avatar" style="width:100%;height:100%;" src="https://api.dicebear.com/9.x/lorelei/svg?seed=luna-cute-egirl" alt="Luna Gespräch" />
+      </div>
+      <div id="conversationHint" class="luna-chat__hint">Avatar + Sprache nur im Gesprächsmodus</div>
+
+      <div id="chatLog" class="luna-chat__log"></div>
+
+      <footer class="luna-chat__composer">
+        <div id="voiceStatus" class="luna-chat__voice-status">🎙️ Voice bereit</div>
+        <textarea id="chatInput" class="luna-chat__input" placeholder="Schreib hier..."></textarea>
+        <button id="btnConversation" class="luna-chat__btn" type="button" title="Gesprächsmodus">◉</button>
+        <button id="btnVoice" class="luna-chat__btn" type="button" title="Voice">🎤</button>
+        <button id="btnSend" class="luna-chat__btn luna-chat__btn--accent" type="button" title="Senden">→</button>
+      </footer>
+    </div>
+
+    <div id="characterOverlay" class="luna-chat__overlay">
+      <div class="luna-chat__overlay-card glass">
+        <h4>Chatbot wählen</h4>
+        <button class="luna-chat__btn" type="button" data-char="luna">Luna</button>
+        <button class="luna-chat__btn" type="button" data-char="eva">Eva</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+  const PREFS_KEY = 'luna.ui.prefs';
+  const MSG_KEY = 'luna.ui.messages';
+
+  const state = {
+    open: false,
+    settingsOpen: false,
+    mode: 'normal',
+    conversation: false,
+    characterId: 'luna',
+    messagesByCharacter: {},
+  };
+
+  const el = {
+    fab: document.getElementById('btnFab'),
+    panel: document.getElementById('lunaChat'),
+    log: document.getElementById('chatLog'),
+    input: document.getElementById('chatInput'),
+    btnSend: document.getElementById('btnSend'),
+    btnConversation: document.getElementById('btnConversation'),
+    btnVoice: document.getElementById('btnVoice'),
+    btnMode: document.getElementById('btnMode'),
+    btnSettings: document.getElementById('btnSettings'),
+    btnClose: document.getElementById('btnClose'),
+    btnCharacters: document.getElementById('btnCharacters'),
+    sectionChip: document.getElementById('sectionChip'),
+    voiceStatus: document.getElementById('voiceStatus'),
+    conversationHint: document.getElementById('conversationHint'),
+    characterOverlay: document.getElementById('characterOverlay'),
+    assistantName: document.getElementById('assistantName'),
+  };
+
+  function getMessages() {
+    return state.messagesByCharacter[state.characterId] || [];
+  }
+
+  function saveMessages() {
+    localStorage.setItem(MSG_KEY, JSON.stringify(state.messagesByCharacter));
+  }
+
+  function loadStorage() {
+    try {
+      const prefs = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}');
+      state.open = prefs.open === true;
+      state.mode = prefs.mode === 'uncensored' ? 'uncensored' : 'normal';
+      state.characterId = String(prefs.characterId || 'luna');
+    } catch {}
+
+    try {
+      const msgs = JSON.parse(localStorage.getItem(MSG_KEY) || '{}');
+      if (msgs && typeof msgs === 'object') state.messagesByCharacter = msgs;
+    } catch {}
+  }
+
+  function savePrefs() {
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ open: state.open, mode: state.mode, characterId: state.characterId }));
+  }
+
+  function renderMessages() {
+    const items = getMessages();
+    el.log.innerHTML = items.map((m) => {
+      const user = m.role === 'user';
+      return `
+        <article class="luna-chat__msg ${user ? 'user' : 'assistant'}">
+          <div class="luna-chat__msg-avatar">${user ? 'U' : 'L'}</div>
+          <div class="luna-chat__msg-stack">
+            <div class="luna-chat__bubble">${String(m.text || '').replaceAll('<', '&lt;').replaceAll('>', '&gt;')}</div>
+            <div class="luna-chat__meta">${user ? 'DU' : 'LUNA'} · ${new Date(m.createdAt || Date.now()).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</div>
+          </div>
+        </article>
+      `;
+    }).join('');
+    el.log.scrollTop = el.log.scrollHeight;
+  }
+
+  function pushMessage(role, text) {
+    const next = [...getMessages(), { role, text: String(text || ''), createdAt: new Date().toISOString() }];
+    state.messagesByCharacter[state.characterId] = next;
+    saveMessages();
+    renderMessages();
+  }
+
+  async function sendChat(message) {
+    const res = await fetch('/assistant/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ characterId: state.characterId, mode: state.mode, message }),
+    });
+    return res.json();
+  }
+
+  function updateUi() {
+    el.panel.classList.toggle('open', state.open);
+    el.fab.textContent = state.open ? '×' : '✦';
+    el.btnMode.textContent = state.mode === 'uncensored' ? '●' : '○';
+    el.sectionChip.textContent = state.settingsOpen ? 'Settings' : 'Chat';
+    el.assistantName.textContent = state.characterId === 'eva' ? 'Eva' : 'Luna';
+    el.panel.dataset.conversation = state.conversation ? 'on' : 'off';
+    el.panel.dataset.mode = state.mode;
+    el.voiceStatus.textContent = state.conversation ? '🎙️ Gespräch aktiv' : '🎙️ Sprache nur im Gesprächsmodus';
+    el.voiceStatus.className = `luna-chat__voice-status ${state.conversation ? 'listening' : ''}`.trim();
+    el.conversationHint.textContent = state.conversation ? 'Gespräch aktiv' : 'Avatar + Sprache nur im Gesprächsmodus';
+    savePrefs();
+  }
+
+  el.fab.addEventListener('click', () => {
+    state.open = !state.open;
+    updateUi();
+  });
+
+  el.btnClose.addEventListener('click', () => {
+    state.open = false;
+    updateUi();
+  });
+
+  el.btnSettings.addEventListener('click', () => {
+    state.settingsOpen = !state.settingsOpen;
+    updateUi();
+  });
+
+  el.btnMode.addEventListener('click', () => {
+    state.mode = state.mode === 'uncensored' ? 'normal' : 'uncensored';
+    pushMessage('assistant', state.mode === 'uncensored' ? 'Uncensored Mode aktiv.' : 'Zurück im Normalmodus.');
+    updateUi();
+  });
+
+  el.btnConversation.addEventListener('click', () => {
+    state.conversation = !state.conversation;
+    updateUi();
+  });
+
+  el.btnVoice.addEventListener('click', () => {
+    if (!state.conversation) {
+      pushMessage('assistant', '🎙️ Sprache nur im Gesprächsmodus verfügbar.');
+      return;
+    }
+    pushMessage('assistant', '🎤 Voice-Input starten (Provider hier anbinden).');
+  });
+
+  el.btnCharacters.addEventListener('click', () => {
+    el.characterOverlay.classList.toggle('open');
+  });
+
+  el.characterOverlay.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-char]');
+    if (!button) {
+      if (event.target === el.characterOverlay) {
+        el.characterOverlay.classList.remove('open');
+      }
+      return;
+    }
+
+    state.characterId = button.getAttribute('data-char') || 'luna';
+    el.characterOverlay.classList.remove('open');
+    updateUi();
+    renderMessages();
+  });
+
+  async function submitMessage() {
+    const text = String(el.input.value || '').trim();
+    if (!text) return;
+    el.input.value = '';
+    pushMessage('user', text);
+    const out = await sendChat(text).catch(() => ({ ok: false, error: { message: 'API nicht erreichbar' } }));
+    pushMessage('assistant', out?.reply || `⚠️ ${out?.error?.message || 'Fehler'}`);
+  }
+
+  el.btnSend.addEventListener('click', submitMessage);
+  el.input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      submitMessage();
+    }
+  });
+
+  loadStorage();
+  updateUi();
+  renderMessages();
+</script>
