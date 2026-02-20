@@ -50,6 +50,35 @@ curl -X POST http://127.0.0.1:5050/assistant/luna/presets/apply \
 
 Im Vue-Beispiel (`examples/vue-snippet.vue`) ist dieses Umschalten bereits eingebaut: bei Mode-Wechsel wird automatisch das passende Preset angewendet.
 
+## Wichtig: Mode-Wechsel vs. Character-Wechsel
+
+- `normal`/`uncensored` **ändert nicht automatisch den Character**.
+- Character bleibt gleich, bis du ihn explizit wechselst (z. B. `setCharacter`/Character-Picker).
+- Ausnahme: Wenn `ASSISTANT_FORCE_CHARACTER_ID=luna` gesetzt ist, wird immer Luna erzwungen.
+
+## Wo ist Lunas vordefinierte JSON?
+
+Im Projekt liegt die aktive Datei unter:
+
+- `config/assistant-mode-config.local.json`
+
+Für externe Projekte setzt du den Pfad über ENV:
+
+```env
+ASSISTANT_MODE_CONFIG_FILE=./config/assistant-mode-config.local.json
+```
+
+Und startest mit der gleichen Struktur (oder aus `config/assistant-mode-config.example.json` ableiten).
+
+## Ja, im Fremdprojekt geht alles per Config + Extra-Calls
+
+Typische Runtime-Calls:
+
+- `POST /assistant/mode` (normal/uncensored)
+- `POST /assistant/luna/presets/apply` (tsundere, uncensored-explicit)
+- `POST /assistant/mode-extras` (zusätzliche uncensored instructions/memories)
+- `POST /assistant/voice/settings` (Voice/PFP/Provider)
+
 ## Internetzugriff (Luna Web) als Standard
 
 Im Core bereits vorhanden, aber per ENV steuerbar.

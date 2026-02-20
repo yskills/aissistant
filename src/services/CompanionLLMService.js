@@ -901,55 +901,6 @@ export class CompanionLLMService {
     return this.promptBuilder.buildSystemPrompt(user, mode);
   }
 
-  isTradingCharacter(modeConfig = {}) {
-    const domain = String(modeConfig?.characterDefinition?.definition?.domain || '').toLowerCase();
-    if (domain) return domain === 'trading' || domain === 'trade';
-
-    const mission = String(modeConfig?.characterDefinition?.definition?.modeProfiles?.normal?.mission || '').toLowerCase();
-    return /(trade|trading|alpaca|broker|portfolio)/.test(mission);
-  }
-
-  fallbackReply(message, snapshot, user, mode = 'normal') {
-    const activeMode = this.normalizeMode(mode || user?.profile?.mode);
-    const modeConfig = this.getModeConfig(activeMode, null, user?.profile?.characterId);
-    const tradingCharacter = this.isTradingCharacter(modeConfig);
-    const name = user.profile.preferredName || 'du';
-    const text = (message || '').toLowerCase();
-    const contextShiftToTask = this.isRoleplayToTaskContextShift(message, activeMode);
-    const equity = snapshot?.account?.equity || 'n/a';
-    const cash = snapshot?.account?.cash || 'n/a';
-    const openOrders = typeof snapshot?.orders?.open === 'number' ? snapshot.orders.open : 'n/a';
-
-    if (contextShiftToTask) {
-      if (tradingCharacter) {
-        return `${modeConfig.character}: Verstanden — wir sind wieder im normalen Sachkontext. Nenne Ziel, Risiko und Zeithorizont, dann gebe ich klare nächste Schritte.`;
-      }
-      return `${modeConfig.character}: Verstanden — wir sind wieder im normalen Sachkontext. Nenne dein Tagesziel oder den nächsten Termin, dann strukturiere ich es klar für dich.`;
-    }
-
-    if (text.includes('status') || text.includes('update')) {
-      if (tradingCharacter) {
-        if (activeMode === 'uncensored') {
-          return `${modeConfig.character}: Equity ${equity}, Cash ${cash}, offene Orders ${openOrders}. Fokus: Risiko klein halten.`;
-        }
-        return `Hey ${name} ✨ Equity ${equity}, Cash ${cash}, offene Orders ${openOrders}.`;
-      }
-      return `${modeConfig.character}: Ich bin da. Sag mir kurz deinen Fokus (Termine, To-dos oder Gespräch), dann setze ich dir einen klaren Plan auf.`;
-    }
-
-    if (activeMode === 'uncensored') {
-      if (tradingCharacter) {
-        return `${modeConfig.character}: Ready. Frag nach Status, Tagesplan oder Risiko-Setup.`;
-      }
-      return `${modeConfig.character}: Ready. Sag mir, was ich für dich organisieren oder formulieren soll.`;
-    }
-
-    if (tradingCharacter) {
-      return `Hey ${name} 💫 ich bin ready! Frag mich nach Status, Tagesplan oder Risiko-Setup.`;
-    }
-    return `Hey ${name} 💫 ich bin ready! Frag mich nach Terminen, Tagesplan, Nachrichten oder Entscheidungen.`;
-  }
-
   isRoleplayToTaskContextShift(message = '', activeMode = 'normal') {
     if (this.normalizeMode(activeMode) !== 'uncensored') return false;
 
@@ -1043,13 +994,15 @@ export class CompanionLLMService {
         .map((h) => String(h?.assistant || '').trim())
         .filter(Boolean);
 
-    let llmResult = this.isEnabled()
-      ? await this.callLLM(user, message, snapshot, recentHistory, activeMode, transientSystemInstruction)
-      : {
-        reply: this.fallbackReply(message, snapshot, user, activeMode),
-        meta: { webSearchUsed: false },
-      };
-    let responseText = String(llmResult?.reply || '').trim() || 'Ich habe gerade keine Antwort generieren können.';
+    if (!this.isEnabled()) {
+      throw new Error('LLM is disabled. Configure provider credentials before using chat.');
+    }
+
+    let llmResult = await this.callLLM(user, message, snapshot, recentHistory, activeMode, transientSystemInstruction);
+    let responseText = String(llmResult?.reply || '').trim();
+    if (!responseText) {
+      throw new Error('LLM returned an empty response.');
+    }
 
     if (this.isEnabled() && this.isRepetitiveReply(responseText, recentAssistantReplies)) {
       try {

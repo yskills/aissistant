@@ -398,8 +398,13 @@ class LLMClient {
       },
     });
 
+    const reply = String(response?.message?.content || '').trim();
+    if (!reply) {
+      throw new Error('LLM returned an empty response.');
+    }
+
     return {
-      reply: response?.message?.content?.trim() || 'Ich habe gerade keine Antwort generieren können.',
+      reply,
       meta: {
         webSearchUsed: !!webContext,
       },
@@ -439,8 +444,13 @@ class LLMClient {
     }
 
     const data = await response.json();
+    const reply = String(data?.choices?.[0]?.message?.content || '').trim();
+    if (!reply) {
+      throw new Error('LLM returned an empty response.');
+    }
+
     return {
-      reply: data?.choices?.[0]?.message?.content?.trim() || 'Ich habe gerade keine Antwort generieren können.',
+      reply,
       meta: {
         webSearchUsed: !!webContext,
       },

@@ -1247,6 +1247,13 @@ class AssistantDevUi {
       });
       this.state.mode = out.mode || target;
       this.setModeUi();
+      this.appendMessage(
+        'assistant',
+        this.state.mode === 'uncensored'
+          ? 'Uncensored Mode aktiv.'
+          : 'Zurück im Normalmodus.',
+        'mode gewechselt',
+      );
     } catch (error) {
       this.showOps(`Mode Fehler: ${error.message}`);
     }

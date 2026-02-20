@@ -405,6 +405,15 @@ export default function createAssistantRouter({
   const runtime = resolveRuntimeConfig();
   const loraGateway = new LoraTrainingGateway({ runtime });
 
+  const ok = (req, res, payload = {}) => res.json({ ok: true, requestId: req.requestId, ...payload });
+  const safe = (handler, errorStatus = 500) => (req, res) => {
+    try {
+      return handler(req, res);
+    } catch (error) {
+      return sendErrorResponse(res, errorStatus, error.message, req.requestId);
+    }
+  };
+
   router.get('/brief', async (req, res) => {
     try {
       const userId = getAssistantUserId(req);
@@ -550,109 +559,36 @@ export default function createAssistantRouter({
     }
   });
 
-  router.get('/voice/config', (req, res) => {
-    try {
-      const voice = CompanionLLMService.getVoiceSettings(getAssistantUserId(req));
-      return res.json({
-        ok: true,
-        requestId: req.requestId,
-        voice,
-      });
-    } catch (error) {
-      return sendErrorResponse(res, 500, error.message, req.requestId);
-    }
+  const getVoicePayload = (req) => ({
+    voice: CompanionLLMService.getVoiceSettings(getAssistantUserId(req)),
   });
 
-  router.get('/voice/settings', (req, res) => {
-    try {
-      const voice = CompanionLLMService.getVoiceSettings(getAssistantUserId(req));
-      return res.json({
-        ok: true,
-        requestId: req.requestId,
-        voice,
-      });
-    } catch (error) {
-      return sendErrorResponse(res, 500, error.message, req.requestId);
-    }
-  });
+  router.get('/voice/config', safe((req, res) => ok(req, res, getVoicePayload(req))));
+  router.get('/voice/settings', safe((req, res) => ok(req, res, getVoicePayload(req))));
 
-  router.get('/voice/providers', (req, res) => {
-    try {
-      const providers = CompanionLLMService.getSpeechProviderCatalog();
-      return res.json({
-        ok: true,
-        requestId: req.requestId,
-        providers,
-      });
-    } catch (error) {
-      return sendErrorResponse(res, 500, error.message, req.requestId);
-    }
-  });
+  router.get('/voice/providers', safe((req, res) => ok(req, res, {
+    providers: CompanionLLMService.getSpeechProviderCatalog(),
+  })));
 
-  router.get('/avatars/catalog', (req, res) => {
-    try {
-      const avatars = CompanionLLMService.getAvatarModelCatalog();
-      return res.json({
-        ok: true,
-        requestId: req.requestId,
-        avatars,
-      });
-    } catch (error) {
-      return sendErrorResponse(res, 500, error.message, req.requestId);
-    }
-  });
+  router.get('/avatars/catalog', safe((req, res) => ok(req, res, {
+    avatars: CompanionLLMService.getAvatarModelCatalog(),
+  })));
 
-  router.post('/voice/settings', (req, res) => {
-    try {
-      const voice = CompanionLLMService.updateVoiceSettings(getAssistantUserId(req), req.body || {});
-      return res.json({
-        ok: true,
-        requestId: req.requestId,
-        voice,
-      });
-    } catch (error) {
-      return sendErrorResponse(res, 500, error.message, req.requestId);
-    }
-  });
+  router.post('/voice/settings', safe((req, res) => ok(req, res, {
+    voice: CompanionLLMService.updateVoiceSettings(getAssistantUserId(req), req.body || {}),
+  })));
 
-  router.get('/luna/presets', (req, res) => {
-    try {
-      const presets = CompanionLLMService.getBehaviorPresets();
-      return res.json({
-        ok: true,
-        requestId: req.requestId,
-        presets,
-      });
-    } catch (error) {
-      return sendErrorResponse(res, 500, error.message, req.requestId);
-    }
-  });
+  router.get('/luna/presets', safe((req, res) => ok(req, res, {
+    presets: CompanionLLMService.getBehaviorPresets(),
+  })));
 
-  router.post('/luna/presets/apply', (req, res) => {
-    try {
-      const result = CompanionLLMService.applyBehaviorPreset(getAssistantUserId(req), req.body || {});
-      return res.json({
-        ok: true,
-        requestId: req.requestId,
-        result,
-      });
-    } catch (error) {
-      return sendErrorResponse(res, 400, error.message, req.requestId);
-    }
-  });
+  router.post('/luna/presets/apply', safe((req, res) => ok(req, res, {
+    result: CompanionLLMService.applyBehaviorPreset(getAssistantUserId(req), req.body || {}),
+  }), 400));
 
-  router.post('/luna/ingest', (req, res) => {
-    try {
-      const result = CompanionLLMService.ingestExternalSignal(getAssistantUserId(req), req.body || {});
-      return res.json({
-        ok: true,
-        requestId: req.requestId,
-        result,
-      });
-    } catch (error) {
-      return sendErrorResponse(res, 400, error.message, req.requestId);
-    }
-  });
+  router.post('/luna/ingest', safe((req, res) => ok(req, res, {
+    result: CompanionLLMService.ingestExternalSignal(getAssistantUserId(req), req.body || {}),
+  }), 400));
 
   router.get('/mode', (req, res) => {
     try {
